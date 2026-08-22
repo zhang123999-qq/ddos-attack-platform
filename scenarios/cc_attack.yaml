@@ -1,0 +1,23 @@
+scenario_id: "cc_attack"
+name: "CC攻击基础演练"
+description: "模拟典型的HTTP Flood (CC攻击)，测试应用层限流、WAF规则、IP信誉防御效果"
+tags: ["http", "application-layer", "waf", "rate-limit"]
+steps:
+  - attack_type: "http_flood"
+    delay_after: 5
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 60
+      rps: 2000
+      concurrency: 200
+      method: "GET"
+      headers:
+        User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      use_https: false
+    node_selector:
+      role: "http-attacker"

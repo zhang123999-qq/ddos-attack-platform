@@ -1,0 +1,79 @@
+scenario_id: "ramp_up"
+name: "渐进式压力测试"
+description: "从低强度逐步增加攻击强度，寻找防御系统的熔断点、性能拐点，评估扩容阈值"
+tags: ["stress-test", "capacity-planning", "ramp", "performance"]
+steps:
+  - attack_type: "http_flood"
+    delay_after: 0
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 60
+      rps: 500
+      concurrency: 50
+      method: "GET"
+    node_selector:
+      role: "http-attacker"
+  
+  - attack_type: "http_flood"
+    delay_after: 10
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 60
+      rps: 1000
+      concurrency: 100
+      method: "GET"
+    node_selector:
+      role: "http-attacker"
+  
+  - attack_type: "http_flood"
+    delay_after: 10
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 60
+      rps: 2000
+      concurrency: 200
+      method: "GET"
+    node_selector:
+      role: "http-attacker"
+  
+  - attack_type: "http_flood"
+    delay_after: 10
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 60
+      rps: 5000
+      concurrency: 500
+      method: "GET"
+    node_selector:
+      role: "http-attacker"
+  
+  - attack_type: "http_flood"
+    delay_after: 10
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 60
+      rps: 10000
+      concurrency: 1000
+      method: "GET"
+    node_selector:
+      role: "http-attacker"

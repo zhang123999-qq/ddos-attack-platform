@@ -1,0 +1,203 @@
+version: '3.8'
+
+# 单机测试用全栈启动
+# 生产环境请使用各模块独立 docker-compose.yml 部署到不同机器
+
+services:
+  # ========== Controller ==========
+  controller:
+    build:
+      context: ./controller
+      dockerfile: Dockerfile
+    container_name: ddos-controller
+    restart: unless-stopped
+    environment:
+      - CONTROLLER_IP=10.100.1.10
+      - CONTROLLER_PORT=8443
+      - CONTROLLER_HOST=0.0.0.0
+      - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - TLS_CERT_FILE=/certs/controller-cert.pem
+      - TLS_KEY_FILE=/certs/controller-key.pem
+      - TLS_CA_FILE=/certs/ca-cert.pem
+      - ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12
+      - GLOBAL_MAX_RPS=50000
+      - GLOBAL_MAX_PPS=100000
+      - GLOBAL_MAX_CONCURRENT_CONNECTIONS=100000
+      - AUDIT_LOG_PATH=/var/log/ddos-audit/audit.jsonl
+      - AUDIT_LOG_LEVEL=INFO
+      - AUDIT_RETENTION_DAYS=90
+      - ENABLE_WEB_UI=true
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    volumes:
+      - ./controller/certs:/certs:ro
+      - controller-logs:/var/log/ddos-audit
+      - ./scenarios:/app/scenarios:ro
+    ports:
+      - "8443:8443"
+    networks:
+      - ddos-lab
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:8443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ========== Attacker HTTP (普通权限) ==========
+  attacker-http:
+    build:
+      context: ./attacker
+      dockerfile: Dockerfile
+    container_name: ddos-attacker-http
+    restart: unless-stopped
+    environment:
+      - NODE_ID=attacker-http-01
+      - NODE_TYPE=http
+      - NODE_LABELS=role=http-attacker,zone=local
+      - CONTROLLER_URL=https://controller:8443
+      - CONTROLLER_CA_CERT=/certs/ca-cert.pem
+      - NODE_CERT=/certs/node-cert.pem
+      - NODE_KEY=/certs/node-key.pem
+      - NODE_TOKEN=
+      - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - ATTACK_TYPES=http_flood,slowloris
+      - MAX_RPS=10000
+      - MAX_CONCURRENT=5000
+      - HEARTBEAT_INTERVAL=10
+      - ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    volumes:
+      - ./attacker/certs:/certs:ro
+      - attacker-http-logs:/var/log/ddos-attacker
+    ports:
+      - "8080:8080"
+    networks:
+      - ddos-lab
+    depends_on:
+      controller:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ========== Attacker RAW (需特权，用于 SYN/UDP) ==========
+  attacker-raw:
+    build:
+      context: ./attacker
+      dockerfile: Dockerfile
+    container_name: ddos-attacker-raw
+    restart: unless-stopped
+    # RAW 攻击需要特权
+    privileged: true
+    # 或者使用细粒度 capability (推荐):
+    # cap_add:
+    #   - NET_RAW
+    #   - NET_ADMIN
+    # network_mode: "host"  # 如果需要发送伪造源 IP 包到外部网络
+    environment:
+      - NODE_ID=attacker-raw-01
+      - NODE_TYPE=raw
+      - NODE_LABELS=role=raw-attacker,zone=local
+      - CONTROLLER_URL=https://controller:8443
+      - CONTROLLER_CA_CERT=/certs/ca-cert.pem
+      - NODE_CERT=/certs/node-cert.pem
+      - NODE_KEY=/certs/node-key.pem
+      - NODE_TOKEN=
+      - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - ATTACK_TYPES=syn_flood,udp_flood,udp_reflection
+      - MAX_PPS=50000
+      - MAX_CONCURRENT=1000
+      - NETWORK_INTERFACE=eth0
+      - HEARTBEAT_INTERVAL=10
+      - ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    volumes:
+      - ./attacker/certs:/certs:ro
+      - attacker-raw-logs:/var/log/ddos-attacker
+    ports:
+      - "8081:8080"
+    networks:
+      - ddos-lab
+    depends_on:
+      controller:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ========== 简易靶机 (用于功能验证) ==========
+  target-app:
+    image: nginx:alpine
+    container_name: ddos-target-app
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - ddos-lab
+    volumes:
+      - ./target/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ========== 监控栈 (可选) ==========
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: ddos-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitor/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ddos-lab
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: ddos-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitor/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitor/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - ddos-lab
+    depends_on:
+      - prometheus
+
+volumes:
+  controller-logs:
+  attacker-http-logs:
+  attacker-raw-logs:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  ddos-lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.100.1.0/24

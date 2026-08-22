@@ -1,0 +1,51 @@
+# =============================================================================
+# 生产部署 — Controller 节点 (单独部署到一台机器)
+# 用法:
+#   docker compose -f docker-compose.prod.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  controller:
+    image: ghcr.io/your-org/ddos-attack-platform/controller:latest
+    container_name: ddos-controller
+    restart: unless-stopped
+    environment:
+      - CONTROLLER_IP=${CONTROLLER_IP}
+      - CONTROLLER_PORT=8443
+      - CONTROLLER_HOST=0.0.0.0
+      - SHARED_SECRET=${SHARED_SECRET:?SHARED_SECRET is required}
+      - TLS_CERT_FILE=/certs/controller-cert.pem
+      - TLS_KEY_FILE=/certs/controller-key.pem
+      - TLS_CA_FILE=/certs/ca-cert.pem
+      - ALLOWED_TARGET_CIDRS=${ALLOWED_TARGET_CIDRS:-10.100.0.0/16}
+      - GLOBAL_MAX_RPS=${GLOBAL_MAX_RPS:-50000}
+      - GLOBAL_MAX_PPS=${GLOBAL_MAX_PPS:-100000}
+      - GLOBAL_MAX_CONCURRENT_CONNECTIONS=${GLOBAL_MAX_CONCURRENT_CONNECTIONS:-100000}
+      - AUDIT_LOG_PATH=/var/log/ddos-audit/audit.jsonl
+      - ENABLE_WEB_UI=true
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ${CERTS_DIR:-./certs}:/certs:ro
+      - ${AUDIT_DIR:-./audit-logs}:/var/log/ddos-audit
+      - ${SCENARIOS_DIR:-./scenarios}:/app/scenarios:ro
+    ports:
+      - "8443:8443"
+    networks:
+      - ddos-mgmt
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    healthcheck:
+      test: ["CMD", "curl", "-kf", "https://localhost:8443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  ddos-mgmt:
+    driver: bridge

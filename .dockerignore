@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+
+# Configs (secrets)
+config.env
+
+# Logs
+*.log
+*.jsonl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+deploy/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Docs
+docs/
+*.md
+!README.md
+
+# Certificates
+certs/
+
+# Monitor
+monitor/
+
+# Target
+target/
+
+# Scenarios (bundled with controller)
+scenarios/

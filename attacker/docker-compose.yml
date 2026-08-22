@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  attacker-http:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ddos-attacker-http
+    restart: unless-stopped
+    environment:
+      - NODE_ID=${NODE_ID:-attacker-http-01}
+      - NODE_TYPE=http
+      - NODE_LABELS=${NODE_LABELS:-role=http-attacker,zone=dmz}
+      - CONTROLLER_URL=${CONTROLLER_URL:-https://10.100.1.10:8443}
+      - CONTROLLER_CA_CERT=/certs/ca-cert.pem
+      - NODE_CERT=/certs/node-cert.pem
+      - NODE_KEY=/certs/node-key.pem
+      - NODE_TOKEN=${NODE_TOKEN}
+      - SHARED_SECRET=${SHARED_SECRET}
+      - ATTACK_TYPES=http_flood,slowloris
+      - MAX_RPS=${MAX_RPS:-10000}
+      - MAX_CONCURRENT=${MAX_CONCURRENT:-5000}
+      - HEARTBEAT_INTERVAL=10
+      - ALLOWED_TARGET_CIDRS=${ALLOWED_TARGET_CIDRS:-10.100.0.0/16,192.168.0.0/16}
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    volumes:
+      - ./certs:/certs:ro
+      - attacker-logs:/var/log/ddos-attacker
+    ports:
+      - "8080:8080"
+    networks:
+      - ddos-lab
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  attacker-logs:
+
+networks:
+  ddos-lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.100.1.0/24

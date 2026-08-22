@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+*.whl
+.venv/
+venv/
+
+# Build artifacts
+build/_*build/
+*.spec.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Config files (contains secrets)
+config.env
+*.env
+!config.env.example
+!*.env.example
+
+# Certificates (contains private keys)
+certs/
+!deploy/certs/.gitkeep
+!certs/.gitkeep
+
+# Logs
+*.log
+audit.jsonl
+/var/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.tar.gz
+*.zip

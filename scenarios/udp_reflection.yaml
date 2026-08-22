@@ -1,0 +1,24 @@
+scenario_id: "udp_reflection"
+name: "UDP 反射放大攻击演练"
+description: "模拟 NTP/DNS/Memcached 反射放大攻击，测试 UDP 速率限制、反射源端口过滤、BGP FlowSpec 防御效果"
+tags: ["udp", "reflection", "amplification", "ntp", "dns", "memcached"]
+steps:
+  - attack_type: "udp_reflection"
+    delay_after: 5
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 123
+        protocol: "udp"
+      duration: 60
+      rps: 5000
+      concurrency: 200
+      reflector_type: "ntp"
+      reflector_list:
+        - "10.100.200.10:123"
+        - "10.100.200.11:123"
+      source_ip_spoof: true
+      spoof_cidr: "10.0.0.0/8"
+      interface: "eth0"
+    node_selector:
+      role: "raw-attacker"

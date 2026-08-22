@@ -1,0 +1,65 @@
+name: Binary Build & Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        binary: [controller, attacker]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build deps
+        run: pip install -r build/requirements-build.txt -r ${{ matrix.binary }}/requirements.txt
+
+      - name: Build ${{ matrix.binary }}
+        run: |
+          cd build
+          pyinstaller --distpath=../dist/${{ matrix.binary }} \
+            --workpath=../dist/_build_${{ matrix.binary }} \
+            --onefile \
+            --name=ddos-${{ matrix.binary }} \
+            ${{ matrix.binary }}.spec
+
+      - name: Package with systemd units
+        run: |
+          cd dist/${{ matrix.binary }}
+          cp ../../deploy/systemd/ddos-${{ matrix.binary }}.service .
+          cp ../../deploy/install-service.sh .
+          cp ../../${{ matrix.binary }}/config.env.example config.env
+          tar -czf ../../ddos-${{ matrix.binary }}-linux-x86_64.tar.gz *
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddos-${{ matrix.binary }}-linux-x86_64
+          path: ddos-${{ matrix.binary }}-linux-x86_64.tar.gz
+
+  release:
+    needs: [build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*.tar.gz
+          generate_release_notes: true
+          draft: false

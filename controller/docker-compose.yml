@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  controller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ddos-controller
+    restart: unless-stopped
+    environment:
+      - CONTROLLER_IP=${CONTROLLER_IP:-10.100.1.10}
+      - CONTROLLER_PORT=8443
+      - CONTROLLER_HOST=0.0.0.0
+      - SHARED_SECRET=${SHARED_SECRET}
+      - TLS_CERT_FILE=/certs/controller-cert.pem
+      - TLS_KEY_FILE=/certs/controller-key.pem
+      - TLS_CA_FILE=/certs/ca-cert.pem
+      - ALLOWED_TARGET_CIDRS=${ALLOWED_TARGET_CIDRS:-10.100.0.0/16,192.168.0.0/16}
+      - GLOBAL_MAX_RPS=${GLOBAL_MAX_RPS:-50000}
+      - GLOBAL_MAX_PPS=${GLOBAL_MAX_PPS:-100000}
+      - GLOBAL_MAX_CONCURRENT_CONNECTIONS=${GLOBAL_MAX_CONCURRENT_CONNECTIONS:-100000}
+      - AUDIT_LOG_PATH=/var/log/ddos-audit/audit.jsonl
+      - AUDIT_LOG_LEVEL=INFO
+      - AUDIT_RETENTION_DAYS=90
+      - ENABLE_WEB_UI=true
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    volumes:
+      - ./certs:/certs:ro
+      - controller-logs:/var/log/ddos-audit
+      - ./scenarios:/app/scenarios:ro
+    ports:
+      - "8443:8443"
+    networks:
+      - ddos-lab
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:8443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  controller-logs:
+
+networks:
+  ddos-lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.100.1.0/24

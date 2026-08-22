@@ -1,0 +1,22 @@
+scenario_id: "slowloris"
+name: "Slowloris 慢速攻击演练"
+description: "模拟 Slowloris 低带宽慢速攻击，测试连接超时配置、连接池隔离、反向代理缓冲防御效果"
+tags: ["slowloris", "low-and-slow", "connection-exhaustion", "proxy"]
+steps:
+  - attack_type: "slowloris"
+    delay_after: 10
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 120
+      rps: 100
+      concurrency: 300
+      method: "GET"
+      headers:
+        User-Agent: "Mozilla/5.0 (compatible; Slowloris)"
+      slowloris_interval: 15
+    node_selector:
+      role: "http-attacker"

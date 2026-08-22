@@ -1,0 +1,46 @@
+[Unit]
+Description=DDoS Attack Platform - Attacker Node (RAW)
+Documentation=https://github.com/your-org/ddos-attack-platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/ddos-attack-platform/attacker
+ExecStart=/opt/ddos-attack-platform/attacker/ddos-attacker
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=always
+RestartSec=15
+
+# RAW socket 权限
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+
+# 安全加固 (比 HTTP 节点宽松)
+NoNewPrivileges=no
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/ddos-attack-platform/attacker
+ReadOnlyPaths=/etc/ssl/certs
+
+# 环境变量
+EnvironmentFile=-/opt/ddos-attack-platform/attacker/config.env
+Environment=NODE_ID=attacker-raw-01
+Environment=NODE_TYPE=raw
+Environment=ATTACK_TYPES=syn_flood,udp_flood,udp_reflection
+Environment=NETWORK_INTERFACE=eth0
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ddos-attacker-raw
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDoS Attack Platform - 控制台</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+        .header { background: #1a1a2e; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1.5rem; }
+        .header .status { display: flex; align-items: center; gap: 1rem; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .status-dot.online { background: #00d4aa; }
+        .status-dot.emergency { background: #ff4757; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        .container { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 60px); }
+        .sidebar { background: white; border-right: 1px solid #eee; padding: 1rem; overflow-y: auto; }
+        .sidebar h3 { font-size: 0.875rem; text-transform: uppercase; color: #888; margin-bottom: 0.5rem; }
+        .nav-item { padding: 0.75rem 1rem; border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+        .nav-item:hover { background: #f0f0f0; }
+        .nav-item.active { background: #e8f4fd; color: #1976d2; font-weight: 500; }
+        
+        .main { padding: 2rem; overflow-y: auto; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+        .card-header { padding: 1rem 1.5rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
+        .card-body { padding: 1.5rem; }
+        
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+        .stat-card { background: #fafafa; border-radius: 8px; padding: 1rem; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: #1a1a2e; }
+        .stat-label { font-size: 0.875rem; color: #888; margin-top: 0.25rem; }
+        
+        .table { width: 100%; border-collapse: collapse; }
+        .table th, .table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #eee; }
+        .table th { font-weight: 600; color: #666; font-size: 0.875rem; }
+        .badge { display: inline-block; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+        .badge-online { background: #e8f5e9; color: #2e7d32; }
+        .badge-attacking { background: #fff3e0; color: #ef6c00; }
+        .badge-offline { background: #fafafa; color: #999; }
+        .badge-running { background: #e3f2fd; color: #1565c0; }
+        .badge-stopped { background: #e8f5e9; color: #2e7d32; }
+        .badge-failed { background: #fbe9e7; color: #c62828; }
+        
+        .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #1976d2; color: white; }
+        .btn-primary:hover { background: #1565c0; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-danger:hover { background: #d32f2f; }
+        .btn-secondary { background: #e0e0e0; color: #333; }
+        
+        .form-group { margin-bottom: 1rem; }
+        .form-label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        .form-input { width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 1rem; }
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+        
+        .emergency-banner { background: #fff3e0; border: 1px solid #ffb74d; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+        .emergency-banner.active { background: #fbe9e7; border-color: #ef5350; }
+        
+        .scenario-card { border: 1px solid #eee; border-radius: 8px; padding: 1rem; margin-bottom: 0.5rem; transition: box-shadow 0.2s; }
+        .scenario-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .scenario-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+        .scenario-tags { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+        .tag { background: #e8f4fd; color: #1976d2; padding: 0.125rem 0.5rem; border-radius: 12px; font-size: 0.75rem; }
+        
+        .ws-status { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+        .ws-status.connected .status-dot { background: #00d4aa; }
+        .ws-status.disconnected .status-dot { background: #ff4757; }
+        
+        .log-entry { font-family: monospace; font-size: 0.8rem; padding: 0.25rem 0.5rem; background: #fafafa; border-radius: 4px; margin: 0.25rem 0; }
+        .log-entry.error { background: #fbe9e7; color: #c62828; }
+        .log-entry.warn { background: #fff3e0; color: #ef6c00; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>DDoS Attack Platform</h1>
+        <div class="header status">
+            <div class="ws-status" id="wsStatus">
+                <span class="status-dot"></span>
+                <span>WebSocket: 连接中...</span>
+            </div>
+            <div id="emergencyStatus">
+                <span class="status-dot online" id="emergencyDot"></span>
+                <span id="emergencyText">正常</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <aside class="sidebar">
+            <h3>导航</h3>
+            <div class="nav-item active" data-tab="dashboard">仪表盘</div>
+            <div class="nav-item" data-tab="nodes">攻击节点</div>
+            <div class="nav-item" data-tab="attacks">攻击管理</div>
+            <div class="nav-item" data-tab="scenarios">预设场景</div>
+            <div class="nav-item" data-tab="ratelimits">限流状态</div>
+            <div class="nav-item" data-tab="audit">审计日志</div>
+        </aside>
+
+        <main class="main" id="mainContent">
+            <!-- Dashboard Tab -->
+            <div class="tab-content" id="tab-dashboard">
+                <div class="emergency-banner" id="emergencyBanner">
+                    <div>
+                        <strong>熔断状态:</strong> <span id="bannerStatus">正常运行</span>
+                    </div>
+                    <button class="btn btn-danger" id="emergencyBtn" onclick="triggerEmergencyStop()">紧急熔断</button>
+                </div>
+
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statNodes">0</div>
+                        <div class="stat-label">在线节点</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statAttacks">0</div>
+                        <div class="stat-label">进行中攻击</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statRps">0</div>
+                        <div class="stat-label">聚合 RPS</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statPps">0</div>
+                        <div class="stat-label">聚合 PPS</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>最近攻击活动</h3>
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <thead>
+                                <tr><th>攻击ID</th><th>类型</th><th>目标</th><th>状态</th><th>节点数</th><th>开始时间</th></tr>
+                            </thead>
+                            <tbody id="recentAttacks"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Nodes Tab -->
+            <div class="tab-content" id="tab-nodes" style="display:none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>攻击节点</h3>
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <thead>
+                                <tr><th>节点ID</th><th>类型</th><th>IP</th><th>状态</th><th>支持攻击</th><th>CPU/内存</th><th>最后心跳</th></tr>
+                            </thead>
+                            <tbody id="nodesTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attacks Tab -->
+            <div class="tab-content" id="tab-attacks" style="display:none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>发起新攻击</h3>
+                    </div>
+                    <div class="card-body">
+                        <form id="attackForm">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">攻击类型</label>
+                                    <select class="form-input" id="attackType" required>
+                                        <option value="http_flood">HTTP Flood (CC攻击)</option>
+                                        <option value="syn_flood">SYN Flood</option>
+                                        <option value="slowloris">Slowloris</option>
+                                        <option value="udp_flood">UDP Flood</option>
+                                        <option value="udp_reflection">UDP 反射放大</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">目标 IP</label>
+                                    <input type="text" class="form-input" id="targetIp" placeholder="10.100.10.10" required>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">目标端口</label>
+                                    <input type="number" class="form-input" id="targetPort" value="80" min="1" max="65535">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">路径 (HTTP)</label>
+                                    <input type="text" class="form-input" id="targetPath" value="/" placeholder="/api/search">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">持续时间 (秒)</label>
+                                    <input type="number" class="form-input" id="duration" value="60" min="1" max="3600">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">RPS/PPS</label>
+                                    <input type="number" class="form-input" id="rps" value="2000" min="1" max="100000">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">并发数</label>
+                                    <input type="number" class="form-input" id="concurrency" value="200" min="1" max="10000">
+                                </div>
+                            </div>
+                            <div class="form-row" id="httpOptions">
+                                <div class="form-group">
+                                    <label class="form-label">HTTP Method</label>
+                                    <select class="form-input" id="method">
+                                        <option value="GET">GET</option>
+                                        <option value="POST">POST</option>
+                                        <option value="HEAD">HEAD</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Use HTTPS</label>
+                                    <select class="form-input" id="useHttps">
+                                        <option value="false">否</option>
+                                        <option value="true">是</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row" id="rawOptions" style="display:none;">
+                                <div class="form-group">
+                                    <label class="form-label">伪造源 IP</label>
+                                    <select class="form-input" id="spoofIp">
+                                        <option value="false">否</option>
+                                        <option value="true">是</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">伪造 CIDR</label>
+                                    <input type="text" class="form-input" id="spoofCidr" value="10.0.0.0/8">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">网卡接口</label>
+                                    <input type="text" class="form-input" id="interface" value="eth0">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">发起攻击</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>活跃攻击</h3>
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <thead>
+                                <tr><th>攻击ID</th><th>类型</th><th>目标</th><th>状态</th><th>进度</th><th>请求/成功/失败</th><th>操作</th></tr>
+                            </thead>
+                            <tbody id="activeAttacksTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scenarios Tab -->
+            <div class="tab-content" id="tab-scenarios" style="display:none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>预设教学场景</h3>
+                    </div>
+                    <div class="card-body" id="scenariosList"></div>
+                </div>
+            </div>
+
+            <!-- Rate Limits Tab -->
+            <div class="tab-content" id="tab-ratelimits" style="display:none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>全局限流状态</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="stat-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="rlGlobalRps">0 / 50000</div>
+                                <div class="stat-label">HTTP RPS 使用 / 限制</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="rlGlobalPps">0 / 100000</div>
+                                <div class="stat-label">RAW PPS 使用 / 限制</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="rlGlobalConn">0 / 100000</div>
+                                <div class="stat-label">连接数使用 / 限制</div>
+                            </div>
+                        </div>
+                        <h4 style="margin-top: 1.5rem;">节点配额分配</h4>
+                        <table class="table">
+                            <thead>
+                                <tr><th>节点ID</th><th>RPS 配额</th><th>PPS 配额</th><th>并发配额</th></tr>
+                            </thead>
+                            <tbody id="nodeQuotasTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audit Tab -->
+            <div class="tab-content" id="tab-audit" style="display:none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>审计日志 (最近 100 条)</h3>
+                    </div>
+                    <div class="card-body" id="auditLog" style="max-height: 500px; overflow-y: auto;">
+                        <div class="log-entry">加载中...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // 配置
+        const TOKEN = "{{ token }}" || localStorage.getItem('ddos_token') || prompt('请输入 Controller Token:');
+        if (TOKEN) localStorage.setItem('ddos_token', TOKEN);
+        const WS_URL = `wss://{{ controller_host }}:8443/ws/metrics?token=${TOKEN}&channels=nodes,attacks,metrics,alerts,system`;
+        const API_BASE = `https://{{ controller_host }}:8443/api/v1`;
+
+        // 状态
+        let ws = null;
+        let nodes = {};
+        let attacks = {};
+        let scenarios = {};
+        let rateLimits = {};
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initTabs();
+            initWebSocket();
+            initAttackForm();
+            loadInitialData();
+        });
+
+        function initTabs() {
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                    item.classList.add('active');
+                    document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+                    document.getElementById(`tab-${item.dataset.tab}`).style.display = 'block';
+                });
+            });
+        }
+
+        function initWebSocket() {
+            ws = new WebSocket(WS_URL);
+            ws.onopen = () => {
+                updateWsStatus(true);
+                console.log('WebSocket connected');
+            };
+            ws.onclose = () => {
+                updateWsStatus(false);
+                setTimeout(initWebSocket, 5000); // 重连
+            };
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleWsMessage(msg);
+            };
+            ws.onerror = (err) => console.error('WS error:', err);
+        }
+
+        function updateWsStatus(connected) {
+            const el = document.getElementById('wsStatus');
+            el.className = 'ws-status ' + (connected ? 'connected' : 'disconnected');
+            el.querySelector('span:last-child').textContent = connected ? 'WebSocket: 已连接' : 'WebSocket: 断开，重连中...';
+        }
+
+        function handleWsMessage(msg) {
+            switch (msg.type) {
+                case 'node_update':
+                    nodes[msg.data.node_id] = msg.data;
+                    renderNodes();
+                    break;
+                case 'node_heartbeat':
+                    if (nodes[msg.data.node_id]) {
+                        nodes[msg.data.node_id] = { ...nodes[msg.data.node_id], ...msg.data };
+                        renderNodes();
+                    }
+                    break;
+                case 'attack_start':
+                    attacks[msg.data.attack_id] = { ...msg.data, status: 'starting', results: {} };
+                    renderAttacks();
+                    break;
+                case 'attack_update':
+                    if (attacks[msg.data.attack_id]) {
+                        attacks[msg.data.attack_id].results[msg.data.node_id] = msg.data.result;
+                        attacks[msg.data.attack_id].status = 'running';
+                        renderAttacks();
+                    }
+                    break;
+                case 'attack_stop':
+                    if (attacks[msg.data.attack_id]) {
+                        attacks[msg.data.attack_id].status = 'stopped';
+                        attacks[msg.data.attack_id].stop_reason = msg.data.reason;
+                        renderAttacks();
+                    }
+                    break;
+                case 'emergency_stop':
+                    showEmergencyBanner(true, msg.data.reason, msg.data.issued_by);
+                    break;
+                case 'rate_limit_status':
+                    rateLimits = msg.data;
+                    renderRateLimits();
+                    break;
+                case 'audit_event':
+                    prependAuditLog(msg.data);
+                    break;
+            }
+        }
+
+        function showEmergencyBanner(active, reason, by) {
+            const banner = document.getElementById('emergencyBanner');
+            const status = document.getElementById('bannerStatus');
+            const dot = document.getElementById('emergencyDot');
+            const text = document.getElementById('emergencyText');
+            
+            if (active) {
+                banner.classList.add('active');
+                status.innerHTML = `已触发: ${reason} (由 ${by} 发起)`;
+                dot.className = 'status-dot emergency';
+                text.textContent = '熔断中';
+            } else {
+                banner.classList.remove('active');
+                status.textContent = '正常运行';
+                dot.className = 'status-dot online';
+                text.textContent = '正常';
+            }
+        }
+
+        async function loadInitialData() {
+            try {
+                const [nodesRes, attacksRes, scenariosRes, limitsRes] = await Promise.all([
+                    apiGet('/nodes'),
+                    apiGet('/attacks'),
+                    apiGet('/scenarios'),
+                    apiGet('/rate-limits')
+                ]);
+                
+                if (nodesRes.success) {
+                    nodesRes.data.forEach(n => nodes[n.node_id] = n);
+                    renderNodes();
+                }
+                if (attacksRes.success) {
+                    attacksRes.data.forEach(a => attacks[a.attack_id] = a);
+                    renderAttacks();
+                }
+                if (scenariosRes.success) {
+                    scenariosRes.data.forEach(s => scenarios[s.scenario_id] = s);
+                    renderScenarios();
+                }
+                if (limitsRes.success) {
+                    rateLimits = limitsRes.data;
+                    renderRateLimits();
+                }
+                updateDashboardStats();
+            } catch (err) {
+                console.error('Initial load failed:', err);
+            }
+        }
+
+        async function apiGet(path) {
+            const resp = await fetch(`${API_BASE}${path}`, {
+                headers: { 'Authorization': `Bearer ${TOKEN}` }
+            });
+            return resp.json();
+        }
+
+        async function apiPost(path, body) {
+            const resp = await fetch(`${API_BASE}${path}`, {
+                method: 'POST',
+                headers: { 
+                    'Authorization': `Bearer ${TOKEN}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            return resp.json();
+        }
+
+        function initAttackForm() {
+            const form = document.getElementById('attackForm');
+            const typeSelect = document.getElementById('attackType');
+            
+            typeSelect.addEventListener('change', () => {
+                const isHttp = ['http_flood', 'slowloris'].includes(typeSelect.value);
+                const isRaw = ['syn_flood', 'udp_flood', 'udp_reflection'].includes(typeSelect.value);
+                document.getElementById('httpOptions').style.display = isHttp ? 'grid' : 'none';
+                document.getElementById('rawOptions').style.display = isRaw ? 'grid' : 'none';
+            });
+            
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const payload = {
+                    attack_type: typeSelect.value,
+                    target: {
+                        ip: document.getElementById('targetIp').value,
+                        port: parseInt(document.getElementById('targetPort').value),
+                        path: document.getElementById('targetPath').value
+                    },
+                    duration: parseInt(document.getElementById('duration').value),
+                    rps: parseInt(document.getElementById('rps').value),
+                    concurrency: parseInt(document.getElementById('concurrency').value),
+                    method: document.getElementById('method').value,
+                    use_https: document.getElementById('useHttps').value === 'true',
+                    source_ip_spoof: document.getElementById('spoofIp').value === 'true',
+                    spoof_cidr: document.getElementById('spoofCidr').value,
+                    interface: document.getElementById('interface').value
+                };
+                
+                try {
+                    const res = await apiPost('/attacks/launch', payload);
+                    if (res.success) {
+                        alert(`攻击已发起: ${res.data.attack_id}`);
+                        form.reset();
+                    } else {
+                        alert(`发起失败: ${res.error}`);
+                    }
+                } catch (err) {
+                    alert(`请求错误: ${err.message}`);
+                }
+            });
+        }
+
+        function updateDashboardStats() {
+            const onlineNodes = Object.values(nodes).filter(n => n.status === 'online').length;
+            const activeAttacks = Object.values(attacks).filter(a => a.status === 'running' || a.status === 'starting').length;
+            
+            document.getElementById('statNodes').textContent = onlineNodes;
+            document.getElementById('statAttacks').textContent = activeAttacks;
+            document.getElementById('statRps').textContent = rateLimits.used_rps || 0;
+            document.getElementById('statPps').textContent = rateLimits.used_pps || 0;
+        }
+
+        function renderNodes() {
+            const tbody = document.getElementById('nodesTable');
+            tbody.innerHTML = Object.values(nodes).map(n => `
+                <tr>
+                    <td>${n.node_id}</td>
+                    <td>${n.node_type}</td>
+                    <td>${n.ip}</td>
+                    <td><span class="badge badge-${n.status}">${n.status}</span></td>
+                    <td>${n.supported_attacks.join(', ')}</td>
+                    <td>${n.cpu_cores}C / ${n.memory_gb}GB</td>
+                    <td>${n.last_heartbeat ? new Date(n.last_heartbeat).toLocaleTimeString() : 'N/A'}</td>
+                </tr>
+            `).join('');
+            
+            updateDashboardStats();
+        }
+
+        function renderAttacks() {
+            const tbody = document.getElementById('activeAttacksTable');
+            const recentTbody = document.getElementById('recentAttacks');
+            
+            const attackEntries = Object.entries(attacks);
+            
+            // 所有攻击
+            tbody.innerHTML = attackEntries.map(([id, a]) => {
+                const totalReq = Object.values(a.results || {}).reduce((sum, r) => sum + r.total_requests, 0);
+                const totalSucc = Object.values(a.results || {}).reduce((sum, r) => sum + r.successful_requests, 0);
+                const totalFail = Object.values(a.results || {}).reduce((sum, r) => sum + r.failed_requests, 0);
+                const nodeCount = Object.keys(a.results || {}).length;
+                
+                return `
+                    <tr>
+                        <td>${id}</td>
+                        <td>${a.command?.attack_type || a.attack_type}</td>
+                        <td>${a.command?.params?.target?.ip || 'N/A'}</td>
+                        <td><span class="badge badge-${a.status}">${a.status}</span></td>
+                        <td>${a.command?.params?.duration ? Math.min(100, Math.round((Date.now() - new Date(a.command?.started_at || Date.now()).getTime()) / 1000 / a.command.params.duration * 100)) : 0}%</td>
+                        <td>${totalReq} / ${totalSucc} / ${totalFail}</td>
+                        <td>
+                            ${(a.status === 'running' || a.status === 'starting') ? 
+                                `<button class="btn btn-danger" onclick="stopAttack('${id}')" style="padding:0.25rem 0.5rem;font-size:0.75rem;">停止</button>` : 
+                                ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            // 最近 5 个
+            recentTbody.innerHTML = attackEntries
+                .sort((a, b) => new Date(b[1].command?.created_at || 0) - new Date(a[1].command?.created_at || 0))
+                .slice(0, 5)
+                .map(([id, a]) => `
+                    <tr>
+                        <td>${id}</td>
+                        <td>${a.command?.attack_type || a.attack_type}</td>
+                        <td>${a.command?.params?.target?.ip || 'N/A'}</td>
+                        <td><span class="badge badge-${a.status}">${a.status}</span></td>
+                        <td>${Object.keys(a.results || {}).length}</td>
+                        <td>${a.command?.created_at ? new Date(a.command.created_at).toLocaleTimeString() : 'N/A'}</td>
+                    </tr>
+                `).join('');
+            
+            updateDashboardStats();
+        }
+
+        function renderScenarios() {
+            const container = document.getElementById('scenariosList');
+            container.innerHTML = Object.values(scenarios).map(s => `
+                <div class="scenario-card">
+                    <div class="scenario-header">
+                        <div>
+                            <strong>${s.name}</strong> <span style="color:#888;font-size:0.875rem;">(${s.scenario_id})</span>
+                        </div>
+                        <button class="btn btn-primary" onclick="runScenario('${s.scenario_id}')" style="padding:0.25rem 0.75rem;font-size:0.875rem;">运行</button>
+                    </div>
+                    <p style="color:#666;font-size:0.875rem;margin-bottom:0.5rem;">${s.description}</p>
+                    <div class="scenario-tags">
+                        ${s.tags?.map(t => `<span class="tag">${t}</span>`).join('') || ''}
+                    </div>
+                    <div style="margin-top:0.5rem;font-size:0.8rem;color:#888;">
+                        步骤: ${s.steps?.length || 0} | 创建: ${s.created_at ? new Date(s.created_at).toLocaleDateString() : 'N/A'}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function runScenario(scenarioId) {
+            if (!confirm(`确定运行场景 ${scenarioId}?`)) return;
+            try {
+                const res = await apiPost(`/scenarios/${scenarioId}/run`, {});
+                if (res.success) {
+                    alert(`场景已启动: ${res.data.run_id}`);
+                } else {
+                    alert(`启动失败: ${res.error}`);
+                }
+            } catch (err) {
+                alert(`请求错误: ${err.message}`);
+            }
+        }
+
+        function renderRateLimits() {
+            document.getElementById('rlGlobalRps').textContent = `${rateLimits.used_rps || 0} / ${rateLimits.global_rps || 50000}`;
+            document.getElementById('rlGlobalPps').textContent = `${rateLimits.used_pps || 0} / ${rateLimits.global_pps || 100000}`;
+            document.getElementById('rlGlobalConn').textContent = `${rateLimits.used_concurrent || 0} / ${rateLimits.global_concurrent || 100000}`;
+            
+            const tbody = document.getElementById('nodeQuotasTable');
+            tbody.innerHTML = Object.entries(rateLimits.node_quotas || {}).map(([nodeId, q]) => `
+                <tr>
+                    <td>${nodeId}</td>
+                    <td>${q.rps || 0}</td>
+                    <td>${q.pps || 0}</td>
+                    <td>${q.concurrent || 0}</td>
+                </tr>
+            `).join('');
+            
+            updateDashboardStats();
+        }
+
+        function prependAuditLog(entry) {
+            const container = document.getElementById('auditLog');
+            const div = document.createElement('div');
+            div.className = 'log-entry' + (entry.success === false ? ' error' : '');
+            div.innerHTML = `[${new Date(entry.timestamp).toLocaleTimeString()}] ${entry.event_type} | actor=${entry.actor} | ${entry.attack_id ? 'attack=' + entry.attack_id : ''} | ${entry.node_id ? 'node=' + entry.node_id : ''} | ${JSON.stringify(entry.details)}`;
+            container.insertBefore(div, container.firstChild);
+            // 限制 100 条
+            while (container.children.length > 100) container.removeChild(container.lastChild);
+        }
+
+        async function stopAttack(attackId) {
+            if (!confirm(`确定停止攻击 ${attackId}?`)) return;
+            try {
+                const res = await apiPost(`/attacks/${attackId}/stop`, {});
+                if (res.success) alert('停止指令已发送');
+                else alert(`停止失败: ${res.error}`);
+            } catch (err) {
+                alert(`请求错误: ${err.message}`);
+            }
+        }
+
+        async function triggerEmergencyStop() {
+            const reason = prompt('熔断原因:');
+            if (!reason) return;
+            const issuedBy = prompt('操作人:') || 'web-ui';
+            try {
+                const res = await apiPost('/emergency_stop', { reason, issued_by: issuedBy });
+                if (res.success) alert('熔断已执行');
+                else alert(`熔断失败: ${res.error}`);
+            } catch (err) {
+                alert(`请求错误: ${err.message}`);
+            }
+        }
+    </script>
+</body>
+</html>

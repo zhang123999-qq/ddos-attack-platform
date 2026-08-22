@@ -1,0 +1,62 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'ddos-lab'
+    environment: 'training'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Controller 指标
+  - job_name: 'ddos-controller'
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/certs/ca-cert.pem
+      cert_file: /etc/prometheus/certs/client-cert.pem
+      key_file: /etc/prometheus/certs/client-key.pem
+      insecure_skip_verify: true
+    static_configs:
+      - targets: ['controller:8443']
+        labels:
+          component: 'controller'
+
+  # Attacker HTTP 节点
+  - job_name: 'ddos-attacker-http'
+    static_configs:
+      - targets: ['attacker-http:8080']
+        labels:
+          component: 'attacker'
+          type: 'http'
+
+  # Attacker RAW 节点
+  - job_name: 'ddos-attacker-raw'
+    static_configs:
+      - targets: ['attacker-raw:8080']
+        labels:
+          component: 'attacker'
+          type: 'raw'
+
+  # Target 应用
+  - job_name: 'ddos-target'
+    static_configs:
+      - targets: ['target-app:80']
+        labels:
+          component: 'target'
+
+  # Prometheus 自监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Node Exporter (如果部署)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+        labels:
+          component: 'infrastructure'

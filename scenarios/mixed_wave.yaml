@@ -1,0 +1,55 @@
+scenario_id: "mixed_wave"
+name: "多层混合波攻击演练"
+description: "同时发起 HTTP Flood + SYN Flood + Slowloris 混合攻击，测试多层联动防御、流量清洗编排、应急响应能力"
+tags: ["mixed", "multi-vector", "red-team", "comprehensive"]
+steps:
+  - attack_type: "syn_flood"
+    delay_after: 3
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+      duration: 120
+      rps: 8000
+      concurrency: 300
+      source_ip_spoof: true
+      spoof_cidr: "10.0.0.0/8"
+      interface: "eth0"
+    node_selector:
+      role: "raw-attacker"
+  
+  - attack_type: "http_flood"
+    delay_after: 2
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/api/search"
+      duration: 120
+      rps: 3000
+      concurrency: 200
+      method: "POST"
+      headers:
+        User-Agent: "Mozilla/5.0 (compatible; LoadTest)"
+        Content-Type: "application/json"
+      body: '{"query":"test","page":1}'
+      use_https: false
+    node_selector:
+      role: "http-attacker"
+  
+  - attack_type: "slowloris"
+    delay_after: 5
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+        path: "/"
+      duration: 120
+      rps: 50
+      concurrency: 200
+      slowloris_interval: 10
+    node_selector:
+      role: "http-attacker"

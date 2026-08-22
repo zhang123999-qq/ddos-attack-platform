@@ -1,0 +1,41 @@
+[Unit]
+Description=DDoS Attack Platform - Attacker Node
+Documentation=https://github.com/your-org/ddos-attack-platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ddos
+Group=ddos
+WorkingDirectory=/opt/ddos-attack-platform/attacker
+ExecStart=/opt/ddos-attack-platform/attacker/ddos-attacker
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=always
+RestartSec=15
+
+# 安全加固
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/ddos-attack-platform/attacker
+ReadOnlyPaths=/etc/ssl/certs
+
+# 环境变量
+EnvironmentFile=-/opt/ddos-attack-platform/attacker/config.env
+Environment=NODE_ID=attacker-http-01
+Environment=NODE_TYPE=http
+Environment=ATTACK_TYPES=http_flood,slowloris
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ddos-attacker
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

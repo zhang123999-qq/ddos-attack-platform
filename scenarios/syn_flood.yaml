@@ -1,0 +1,20 @@
+scenario_id: "syn_flood"
+name: "SYN Flood 传输层攻击演练"
+description: "模拟 TCP SYN Flood 攻击，测试 SYN Cookie、连接队列、防火墙状态检测防御效果"
+tags: ["syn", "transport-layer", "tcp", "firewall"]
+steps:
+  - attack_type: "syn_flood"
+    delay_after: 5
+    params:
+      target:
+        ip: "TARGET_IP_PLACEHOLDER"
+        port: 80
+        protocol: "tcp"
+      duration: 60
+      rps: 10000
+      concurrency: 500
+      source_ip_spoof: true
+      spoof_cidr: "10.0.0.0/8"
+      interface: "eth0"
+    node_selector:
+      role: "raw-attacker"
