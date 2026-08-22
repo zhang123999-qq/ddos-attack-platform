@@ -1,3 +1,19 @@
+# OpenClaw/ClawX workspace ignores
+memory/*.md
+!memory/YYYY-MM-DD.md
+*.log
+*.sqlite
+*.bak
+*.last-good
+node_modules/
+__pycache__/
+*.pyc
+.env
+*.key
+*.pem
+.DS_Store
+Thumbs.db
+
 # Python
 __pycache__/
 *.py[cod]
