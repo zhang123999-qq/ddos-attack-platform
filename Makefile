@@ -14,23 +14,19 @@ all: certs docker-build
 help:
 	@echo "DDoS Attack Platform v$(VERSION)"
 	@echo ""
-	@echo "  Development:"
+	@echo "  Quick Start (Docker):"
 	@echo "    make certs               Generate mTLS certificates"
 	@echo "    make docker-build        Build all Docker images locally"
-	@echo "    make docker-push         Build & push to GHCR"
-	@echo "    make binary              Build standalone Linux binaries"
-	@echo "    make binary-package      Build and package as .tar.gz"
+	@echo "    make deploy-all          Deploy full stack (single machine)"
 	@echo ""
-	@echo "  Deployment:"
-	@echo "    make deploy-controller   Deploy Controller via docker"
-	@echo "    make deploy-attacker     Deploy HTTP Attacker via docker"
-	@echo "    make deploy-attacker-raw Deploy RAW Attacker via docker"
-	@echo "    make deploy-all          Deploy everything (single-machine)"
+	@echo "  Unified Deploy (Docker + Binary mixed):"
+	@echo "    make configs             Generate per-node .env from config.yaml"
+	@echo "    make distribute          Distribute certs+configs to all nodes"
+	@echo "    make unified-deploy      Full cluster from config.yaml"
+	@echo "    make unified-status      Show cluster health"
+	@echo "    make unified-stop        Stop entire cluster"
 	@echo ""
-	@echo "  Utilities:"
-	@echo "    make clean               Remove all build artifacts"
-	@echo "    make shell-controller    Shell into Controller container"
-	@echo "    make logs-controller     Tail Controller logs"
+	@echo "  CI / Release:"
 
 # ========== 证书 ==========
 certs:
@@ -64,6 +60,22 @@ binary:
 
 binary-package:
 	cd build && pip install -q -r requirements-build.txt && python build.py all && python build.py package
+
+# ========== 统一部署 (Docker + Binary 混合) ==========
+configs:
+	@bash deploy/generate-configs.sh
+
+distribute:
+	@bash deploy/distribute-certs.sh
+
+unified-deploy:
+	@bash deploy/unified-deploy.sh deploy-all
+
+unified-status:
+	@bash deploy/unified-deploy.sh status
+
+unified-stop:
+	@bash deploy/unified-deploy.sh stop
 
 # ========== 部署 (Docker) ==========
 deploy-controller:

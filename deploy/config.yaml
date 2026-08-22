@@ -1,0 +1,128 @@
+# =============================================================================
+# DDoS Attack Platform — 集群拓扑描述 (唯一配置真相源)
+#
+# 一个文件定义: Controller + N 个 Attacker 的部署方式和参数
+# 部署方式 docker / binary 可以按节点任意混用
+# =============================================================================
+
+# ─── 全局共享配置 ───
+global:
+  # 预共享密钥: "auto" 自动生成 32 字节随机密钥
+  shared_secret: "auto"
+
+  # 允许攻击的目标 CIDR 网段
+  allowed_target_cidrs:
+    - "10.100.0.0/16"
+    - "192.168.0.0/16"
+
+  # 全局限流
+  global_max_rps: 50000
+  global_max_pps: 100000
+  global_max_concurrent: 100000
+
+  # CA 证书路径 (统一 CA 签发的证书)
+  ca_cert_path: "./certs/ca-cert.pem"
+
+  # 日志级别
+  log_level: "INFO"
+
+# ─── Controller 配置 ───
+controller:
+  # 部署方式: docker | binary
+  deploy_method: docker
+
+  # Controller 服务器地址
+  host: "10.100.1.10"
+  port: 8443
+
+  # 安装目录 (binary 部署用)
+  install_dir: "/opt/ddos-attack-platform/controller"
+
+  # Docker 相关 (deploy_method=docker 时)
+  docker:
+    image: "ghcr.io/your-org/ddos-attack-platform/controller:latest"
+    container_name: "ddos-controller"
+    compose_file: "deploy/docker-compose.controller.yml"
+
+  # 二进制相关 (deploy_method=binary 时)
+  binary:
+    archive: "dist/ddos-controller-linux-x86_64.tar.gz"
+    service_name: "ddos-controller"
+
+  # SSH 连接 (远程部署用)
+  ssh:
+    user: "root"
+    port: 22
+
+  # 是否启用 Web UI
+  enable_web_ui: true
+
+# ─── Attacker 节点列表 ───
+attackers:
+  # HTTP Flood / Slowloris 节点
+  - node_id: "attacker-http-01"
+    host: "10.100.1.20"
+    deploy_method: docker          # ← Docker 部署
+    type: "http"
+    labels:
+      role: "http-attacker"
+      zone: "dmz"
+    attacks:
+      - "http_flood"
+      - "slowloris"
+    max_rps: 10000
+    max_concurrent: 5000
+    docker:
+      image: "ghcr.io/your-org/ddos-attack-platform/attacker-http:latest"
+      container_name: "ddos-attacker-http-01"
+      compose_file: "deploy/docker-compose.attacker.yml"
+    binary:
+      archive: "dist/ddos-attacker-linux-x86_64.tar.gz"
+      service_name: "ddos-attacker-http"
+    ssh:
+      user: "root"
+      port: 22
+
+  # 第二个 HTTP 节点 (二进制部署)
+  - node_id: "attacker-http-02"
+    host: "10.100.1.21"
+    deploy_method: binary          # ← 二进制部署
+    type: "http"
+    labels:
+      role: "http-attacker"
+      zone: "dmz"
+    attacks:
+      - "http_flood"
+      - "slowloris"
+    max_rps: 10000
+    max_concurrent: 5000
+    install_dir: "/opt/ddos-attack-platform/attacker"
+    binary:
+      archive: "dist/ddos-attacker-linux-x86_64.tar.gz"
+      service_name: "ddos-attacker-http"
+    ssh:
+      user: "root"
+      port: 22
+
+  # RAW 攻击节点 (二进制部署，需要 root/CAP_NET_RAW)
+  - node_id: "attacker-raw-01"
+    host: "10.100.1.30"
+    deploy_method: binary
+    type: "raw"
+    labels:
+      role: "raw-attacker"
+      zone: "dmz"
+    attacks:
+      - "syn_flood"
+      - "udp_flood"
+      - "udp_reflection"
+    max_pps: 50000
+    max_concurrent: 1000
+    network_interface: "eth0"
+    install_dir: "/opt/ddos-attack-platform/attacker"
+    binary:
+      archive: "dist/ddos-attacker-linux-x86_64.tar.gz"
+      service_name: "ddos-attacker-raw"
+    ssh:
+      user: "root"
+      port: 22

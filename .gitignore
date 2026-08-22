@@ -50,6 +50,9 @@ certs/
 audit.jsonl
 /var/
 
+# Generated configs (secrets — keep directory, ignore .env)
+generated/*.env
+
 # OS
 .DS_Store
 Thumbs.db
