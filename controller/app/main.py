@@ -27,9 +27,10 @@ from app.orchestrator import Orchestrator
 from app.audit import audit_logger
 from app.node_commander import node_commander
 from app.websocket import (
-    websocket_endpoint, manager, broadcast_node_update, broadcast_attack_start,
-    broadcast_attack_update, broadcast_attack_stop, broadcast_emergency_stop,
-    broadcast_rate_limit_status, broadcast_system_event, broadcast_audit_event
+    websocket_endpoint, manager, broadcast_node_update, broadcast_node_heartbeat,
+    broadcast_attack_start, broadcast_attack_update, broadcast_attack_stop,
+    broadcast_emergency_stop, broadcast_rate_limit_status, broadcast_system_event,
+    broadcast_audit_event
 )
 
 logger = structlog.get_logger(__name__)
@@ -115,7 +116,11 @@ app = FastAPI(
 # 静态文件和模板 — CRIT-5 修复: 静态目录不存在时静默降级
 templates = None
 if os.getenv("ENABLE_WEB_UI", "true").lower() == "true":
-    ui_path = Path(__file__).parent.parent / "ui"
+    # PyInstaller 冻结环境: 资源解包到 sys._MEIPASS/ui; 源码运行: controller/ui
+    if getattr(sys, "frozen", False):
+        ui_path = Path(getattr(sys, "_MEIPASS", ".")) / "ui"
+    else:
+        ui_path = Path(__file__).parent.parent / "ui"
     if ui_path.exists():
         static_dir = ui_path / "static"
         if not static_dir.exists():
@@ -592,7 +597,12 @@ if templates:
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
-        return templates.TemplateResponse("dashboard.html", {"request": request, "controller_host": request.url.hostname})
+        # starlette>=0.29 新签名: request 首参 + name/context 关键字 (旧二元组传法已移除)
+        return templates.TemplateResponse(
+            request=request,
+            name="dashboard.html",
+            context={"request": request, "controller_host": request.url.hostname},
+        )
 
 
 # ========== 内部调试端点 ==========

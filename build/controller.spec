@@ -83,6 +83,8 @@ _ROOT = os.path.dirname(SPECPATH)
 
 datas = [
     (os.path.join(_ROOT, 'scenarios'), 'scenarios'),  # 预设场景 YAML
+    (os.path.join(_ROOT, 'controller', 'ui', 'static'), 'ui/static'),
+    (os.path.join(_ROOT, 'controller', 'ui', 'templates'), 'ui/templates'),
 ]
 
 # Controller 入口

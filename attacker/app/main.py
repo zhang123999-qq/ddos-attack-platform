@@ -432,7 +432,7 @@ if __name__ == "__main__":
     uvicorn.run(
         app_target,
         host="0.0.0.0",
-        port=8080,
+        port=int(os.getenv("NODE_PORT", "8080")),
         log_level=os.getenv("LOG_LEVEL", "info").lower(),
         access_log=True
     )

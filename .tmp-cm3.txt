@@ -1,0 +1,28 @@
+fix(platform): deploy-test findings — UI bundling, template signature,
+heartbeat broadcast import, node port config
+
+Full real-deployment test (one-line installer on WSL Ubuntu with
+systemd, official release binary, WebUI-generated enroll command for
+node onboarding) surfaced four more issues:
+
+1. controller.spec never bundled ui/static + ui/templates - the frozen
+   binary served no dashboard at all (/ -> 404). Assets added to datas;
+   main.py resolves the ui dir from sys._MEIPASS when frozen.
+
+2. starlette>=0.29 removed the old TemplateResponse("name", {dict})
+   call shape - dashboard rendered 500 under current libs. Switched to
+   request= first-arg keyword form (supported since 0.29, compatible
+   with CI pins).
+
+3. heartbeat endpoint called broadcast_node_heartbeat() without
+   importing it - every node heartbeat 500ed once a real node was
+   enrolled. Import fixed; verified heartbeats now land.
+
+4. attacker uvicorn port was hardcoded 8080 - impossible to run two
+   nodes on one host or remap in containers. Now NODE_PORT env with
+   8080 default.
+
+Deployment test result after fixes: installer -> service active ->
+WebUI 200 -> enroll command -> node online -> attack launched ->
+149/149 requests completed and results collected back on the
+controller. Full loop green.
