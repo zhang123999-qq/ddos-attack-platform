@@ -33,10 +33,15 @@ class HealthMonitor:
         memory_gb = round(mem.total / (1024**3), 2)
 
         interfaces = []
-        for name, addrs in psutil.net_if_addrs().items():
-            for addr in addrs:
-                if addr.family == socket.AF_INET and not addr.address.startswith("127."):
-                    interfaces.append(f"{name}:{addr.address}")
+        try:
+            for name, addrs in psutil.net_if_addrs().items():
+                for addr in addrs:
+                    if addr.family == socket.AF_INET and not addr.address.startswith("127."):
+                        interfaces.append(f"{name}:{addr.address}")
+        except OSError:
+            # 受限网络环境 (WSL netns/容器) 下 net_if_addrs 可能抛
+            # "Address family not supported" — 降级为回环上报, 不阻塞节点启动
+            logger.warning("net_if_addrs_unavailable_fallback_loopback")
 
         supported = self._get_supported_attacks()
 

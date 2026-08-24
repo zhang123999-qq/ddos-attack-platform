@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 try:
     from scapy.all import IP, TCP, send, RandShort, RandIP, RandInt, conf
     SCAPY_AVAILABLE = True
-except ImportError:
+except Exception:  # ImportError 之外, 受限网络环境(WSL/容器)下 scapy 探测可能抛 OSError
     SCAPY_AVAILABLE = False
     logger.warning("scapy_not_available_syn_flood_disabled")
 

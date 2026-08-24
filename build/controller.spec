@@ -77,15 +77,18 @@ hidden_imports = [
     'hmac',
 ]
 
-# 运行时数据文件
+# 运行时数据文件 — 路径基于 spec 所在目录动态解析 (PyInstaller 注入 SPECPATH),
+# 与工作目录/检出深度无关
+_ROOT = os.path.dirname(SPECPATH)
+
 datas = [
-    ('../../../scenarios', 'scenarios'),  # 预设场景 YAML
+    (os.path.join(_ROOT, 'scenarios'), 'scenarios'),  # 预设场景 YAML
 ]
 
 # Controller 入口
 a = Analysis(
-    ['../../../controller/app/main.py'],
-    pathex=['../../../controller'],
+    [os.path.join(_ROOT, 'controller', 'app', 'main.py')],
+    pathex=[os.path.join(_ROOT, 'controller')],
     binaries=[],
     datas=datas,
     hiddenimports=hidden_imports,

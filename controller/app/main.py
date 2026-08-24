@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import uuid
 import asyncio
 from contextlib import asynccontextmanager
@@ -105,7 +106,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DDoS Attack Platform Controller",
     description="内网红方攻击编排控制中心 - 仅供授权教学演练使用",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
     docs_url="/docs" if os.getenv("ENABLE_WEB_UI", "true").lower() == "true" else None,
     redoc_url=None
@@ -627,8 +628,13 @@ if __name__ == "__main__":
     else:
         logger.warning("tls_disabled_missing_certs", cert=cert_file, key=key_file)
 
+    # PyInstaller 冻结环境下无 app 包可导入 — 直接传应用对象;
+    # 源码运行保持字符串引用以启用 reload 语义
+    app_target = "app.main:app"
+    if getattr(sys, "frozen", False):
+        app_target = app
     uvicorn.run(
-        "app.main:app",
+        app_target,
         host=os.getenv("CONTROLLER_HOST", "0.0.0.0"),
         port=int(os.getenv("CONTROLLER_PORT", "8443")),
         log_level=os.getenv("LOG_LEVEL", "info").lower(),

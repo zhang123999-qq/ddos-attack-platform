@@ -46,10 +46,25 @@ class NodeCrypto:
                 raise SystemExit(1)
     
     def create_ssl_context(self) -> ssl.SSLContext:
-        """创建连接 Controller 的 mTLS 客户端上下文"""
+        """创建连接 Controller 的 TLS 客户端上下文。
+
+        双模式:
+        - mTLS (NODE_CERT/NODE_KEY 存在): 客户端证书双向认证
+        - 服务端验证 (仅 CONTROLLER_CA_CERT): enroll 安装器的默认发放物,
+          TLS 加密 + 校验控制器身份, 客户端不出证 — 与 node-install.sh 一致
+        """
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        if Path(self.node_cert).exists() and Path(self.node_key).exists():
+            context.load_cert_chain(self.node_cert, self.node_key)
+        elif os.getenv("NODE_CERT") or os.getenv("NODE_KEY"):
+            # 显式配置了客户端证书但文件缺失 — 拒绝启动而非静默降级
+            logger.error("node_cert_configured_but_missing",
+                         cert=self.node_cert, key=self.node_key)
+            raise SystemExit(1)
         context.verify_mode = ssl.CERT_REQUIRED
-        context.load_cert_chain(self.node_cert, self.node_key)
+        if not Path(self.ca_cert).exists():
+            logger.error("controller_ca_missing", path=self.ca_cert)
+            raise SystemExit(1)
         context.load_verify_locations(self.ca_cert)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
@@ -76,11 +91,16 @@ class NodeCrypto:
         }
     
     def validate_cert_files(self) -> bool:
-        """验证证书文件存在"""
-        for path in [self.ca_cert, self.node_cert, self.node_key]:
-            if not Path(path).exists():
-                logger.error("cert_file_missing", path=path)
-                return False
+        """验证证书文件存在 — CA 必需; 客户端证书仅在显式要求 mTLS 时必需"""
+        if not Path(self.ca_cert).exists():
+            logger.error("cert_file_missing", path=self.ca_cert)
+            return False
+        # 未显式配置 NODE_CERT/NODE_KEY 时走服务端验证模式, 不强制客户端证书
+        if os.getenv("NODE_CERT") or os.getenv("NODE_KEY"):
+            for path in [self.node_cert, self.node_key]:
+                if not Path(path).exists():
+                    logger.error("cert_file_missing", path=path)
+                    return False
         return True
 
 

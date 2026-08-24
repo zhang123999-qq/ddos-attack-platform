@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import asyncio
 import hmac
 import uuid
@@ -115,7 +116,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DDoS Attack Node",
     description="分布式攻击节点 - 仅供授权内网教学演练使用",
-    version="1.0.0",
+    version="1.2.0",
     lifespan=lifespan
 )
 
@@ -423,9 +424,13 @@ if __name__ == "__main__":
     import uvicorn
     
     setup_signals()
-    
+
+    # PyInstaller 冻结环境下无 app 包可导入 — 直接传应用对象
+    app_target = "app.main:app"
+    if getattr(sys, "frozen", False):
+        app_target = app
     uvicorn.run(
-        "app.main:app",
+        app_target,
         host="0.0.0.0",
         port=8080,
         log_level=os.getenv("LOG_LEVEL", "info").lower(),

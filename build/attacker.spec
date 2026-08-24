@@ -5,6 +5,7 @@
 block_cipher = None
 
 hidden_imports = [
+    'psutil', 'psutil.process', 'psutil.process_iter',
     'uvicorn',
     'uvicorn.loops', 'uvicorn.loops.auto',
     'uvicorn.protocols.http', 'uvicorn.protocols.http.auto',
@@ -38,8 +39,9 @@ excludes = [
 ]
 
 a = Analysis(
-    ['../../../attacker/app/main.py'],
-    pathex=['../../../attacker'],
+    # 路径基于 spec 所在目录动态解析 (PyInstaller 注入 SPECPATH)
+    [os.path.join(os.path.dirname(SPECPATH), 'attacker', 'app', 'main.py')],
+    pathex=[os.path.join(os.path.dirname(SPECPATH), 'attacker')],
     binaries=[],
     datas=[],
     hiddenimports=hidden_imports,

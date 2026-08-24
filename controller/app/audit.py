@@ -23,8 +23,19 @@ class AuditLogger:
     """结构化审计日志 - JSONL 格式，支持文件轮转 + ELK 转发"""
 
     def __init__(self):
+        # 默认系统路径; 无权限时优雅降级到用户态目录, 绝不在 import 期崩溃
+        # (Docker 非 root / 手动运行 / WSL 等场景下 /var/log 不可写)
         self.log_path = Path(os.getenv("AUDIT_LOG_PATH", "/var/log/ddos-audit/audit.jsonl"))
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            probe = self.log_path.parent / ".write_test"
+            probe.touch(); probe.unlink()
+        except (PermissionError, OSError):
+            fallback = Path.home() / ".local" / "state" / "ddos-audit" / "audit.jsonl"
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+            logging.getLogger("ddos.audit").warning(
+                "audit_log_fallback: %s unwritable, using %s", self.log_path, fallback)
+            self.log_path = fallback
         self.retention_days = int(os.getenv("AUDIT_RETENTION_DAYS", "90"))
 
         self.file_handler = RotatingFileHandler(
