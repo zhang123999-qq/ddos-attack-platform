@@ -77,10 +77,11 @@ class ConnectionManager:
                 dead.add(ws)
 
         # 清理断开的连接
+        # 注意: disconnect() 内部会自行获取 self._lock — asyncio.Lock 不可重入,
+        # 此处若再包一层锁将造成自死锁 (任何客户端断连即冻结整个 WS 子系统)
         if dead:
-            async with self._lock:
-                for ws in dead:
-                    await self.disconnect(ws)
+            for ws in dead:
+                await self.disconnect(ws)
     
     async def send_personal(self, websocket: WebSocket, message: dict):
         try:

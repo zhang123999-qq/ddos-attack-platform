@@ -125,8 +125,11 @@ class SafeAttackBase(ABC):
             raise SafetyError("Global emergency stop is active")
         
         # 3. 权限检查
-        if cls.REQUIRES_ROOT and os.geteuid() != 0:
-            raise SafetyError(f"{cls.NAME} requires root/CAP_NET_RAW")
+        if cls.REQUIRES_ROOT:
+            # Windows 无 geteuid — 视为非 root 环境交由上层容器/capability 控制
+            euid = getattr(os, "geteuid", None)
+            if euid is not None and euid != 0:
+                raise SafetyError(f"{cls.NAME} requires root/CAP_NET_RAW")
         
         logger.info("pre_flight_check_passed", attack=cls.NAME, target=target)
     

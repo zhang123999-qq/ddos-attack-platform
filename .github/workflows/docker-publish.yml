@@ -17,7 +17,45 @@ permissions:
   contents: read
 
 jobs:
+  # 测试门禁: pytest 不过则不进入构建发布
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir -r controller/requirements.txt
+          pip install --no-cache-dir pytest httpx
+
+      - name: Run controller test suite (gate)
+        working-directory: controller
+        env:
+          SHARED_SECRET: ci-gate-secret-32chars-abcdef1234567890
+          LOG_LEVEL: error
+          ENABLE_WEB_UI: 'true'
+        run: |
+          python -m pytest tests/test_ratelimit.py tests/test_scenarios.py \
+            tests/test_enroll.py tests/test_api_smoke.py -v --tb=short
+
+      - name: Run E2E flows (real HTTPS boots)
+        working-directory: controller
+        env:
+          SHARED_SECRET: ci-gate-secret-32chars-abcdef1234567890
+        run: |
+          python tests/test_install_flow_e2e.py
+          python tests/test_tls_e2e.py
+
   build-and-push:
+    needs: [test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
