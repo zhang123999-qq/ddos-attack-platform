@@ -226,7 +226,7 @@ tail -f /var/log/ddos-audit/audit.jsonl | jq .
 
 ---
 
-**文档版本**: v1.0  
-**适用平台版本**: DDoS Attack Platform v1.0  
-**更新日期**: 2024-01-15  
+**文档版本**: v1.1  
+**适用平台版本**: DDoS Attack Platform v1.1  
+**更新日期**: 2024-12-19  
 **维护人**: 网络安全红队

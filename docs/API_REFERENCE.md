@@ -1,38 +1,120 @@
-# DDoS Attack Platform - API 参考文档
+# DDoS Attack Platform — API 参考文档 v1.1
 
-> 基础 URL: `https://controller:8443/api/v1`
-> 认证: `Authorization: Bearer <TOKEN>` (Controller API) / mTLS + Header (Node API)
+[![Version](https://img.shields.io/badge/version-1.1-blue.svg)]()
+[![Base URL](https://img.shields.io/badge/base%20url-%2Fapi%2Fv1-green.svg)]()
+[![Auth](https://img.shields.io/badge/auth-Bearer%20%7C%20mTLS-orange.svg)]()
+
+> **基础 URL**: `https://<controller-host>:8443/api/v1`  
+> **认证方式**: Controller API → `Authorization: Bearer <TOKEN>` | Node API → mTLS + `X-Node-ID` + `X-Node-Token`  
+> **内容类型**: `application/json`  
+> **字符编码**: UTF-8  
+> **日期格式**: ISO 8601 (UTC), 如 `2024-01-15T10:30:00Z`
 
 ---
 
-## 🔐 认证方式
+## ⚖️ 免责声明
 
-### Controller API (教学控制台/自动化脚本)
-```bash
-# Header
-Authorization: Bearer <SHARED_SECRET_HMAC>
+本 API 文档仅供授权内网教学/演练使用。调用攻击类接口前，请确认：
+- ✅ 已获得目标网络书面授权
+- ✅ 目标 IP 在 `ALLOWED_TARGET_CIDRS` 白名单内
+- ✅ 已制定应急预案，确认熔断按钮可达
+- ❌ 严禁用于任何非授权测试、生产环境攻击
+
+---
+
+## 🔐 认证方式详解
+
+### 1. Controller API (教学控制台、自动化脚本、CI/CD)
+
+```http
+Authorization: Bearer <CONTROLLER_TOKEN>
 ```
-- Token 为 `SHARED_SECRET` 的 HMAC-SHA256 (`ddos-controller-auth`)
 
-### Attacker Node API (节点间通信)
+**Token 生成方式**：
 ```bash
-# Headers (mTLS 已在传输层验证)
+# Controller Token = HMAC-SHA256(SHARED_SECRET, "ddos-controller-auth")
+TOKEN=$(echo -n "ddos-controller-auth" | openssl dgst -sha256 -hmac "$SHARED_SECRET" | awk '{print $2}')
+```
+
+| 参数 | 说明 |
+|------|------|
+| `SHARED_SECRET` | 32 字节十六进制字符串，Controller 与所有 Attacker 共享 |
+| 算法 | HMAC-SHA256 |
+| 数据 | `ddos-controller-auth` (固定字符串) |
+
+### 2. Node API (Attacker 节点接收指令)
+
+```http
 X-Node-ID: <node_id>
-X-Node-Token: <HMAC_SHA256(shared_secret, node_id)>
+X-Node-Token: <NODE_TOKEN>
+```
+
+**Node Token 生成方式**：
+```bash
+# Node Token = HMAC-SHA256(SHARED_SECRET, node_id)
+NODE_TOKEN=$(echo -n "attacker-http-01" | openssl dgst -sha256 -hmac "$SHARED_SECRET" | awk '{print $2}')
+```
+
+**Controller 下发指令时使用的 Token**：
+```bash
+# Controller Cmd Token = HMAC-SHA256(SHARED_SECRET, "ddos-controller-cmd")
+CMD_TOKEN=$(echo -n "ddos-controller-cmd" | openssl dgst -sha256 -hmac "$SHARED_SECRET" | awk '{print $2}')
+```
+
+> 💡 **安全提示**：所有 API 均通过 mTLS 1.2+ 传输层加密，Header Token 为应用层二次验证（纵深防御）。
+
+---
+
+## 📋 统一响应格式
+
+### 成功响应
+```json
+{
+  "success": true,
+  "data": { ... },
+  "message": "Operation completed"
+}
+```
+
+### 错误响应
+```json
+{
+  "success": false,
+  "error": "ERROR_CODE",
+  "message": "Human readable description"
+}
+```
+
+### 分页响应
+```json
+{
+  "items": [...],
+  "total": 100,
+  "page": 1,
+  "page_size": 20
+}
 ```
 
 ---
 
-## 📋 Controller REST API
+## 🏥 健康检查与就绪探针
 
-### 健康检查
+| 端点 | 方法 | 认证 | 用途 | Kubernetes Probe |
+|------|------|------|------|------------------|
+| `/health` | GET | 无 | 进程存活 (Liveness) | `livenessProbe` |
+| `/ready` | GET | 无 | 服务就绪 (Readiness) | `readinessProbe` |
 
-| 方法 | 路径 | 认证 | 说明 |
-|------|------|------|------|
-| GET | `/health` | 无 | 服务存活检查 |
-| GET | `/ready` | 无 | 就绪检查 (含熔断状态) |
+**`/health` 响应**：
+```json
+{
+  "status": "healthy",
+  "service": "ddos-controller",
+  "version": "1.1.0",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
 
-**响应示例**:
+**`/ready` 响应**：
 ```json
 {
   "status": "ready",
@@ -42,15 +124,21 @@ X-Node-Token: <HMAC_SHA256(shared_secret, node_id)>
 }
 ```
 
+> ⚠️ `emergency_stop: true` 时 `/ready` 仍返回 `200`，但 `status: "ready"` 配合 `emergency_stop` 字段供上游判断。
+
 ---
+
+## 🎮 Controller REST API (需 Controller Token)
 
 ### 节点管理
 
 #### 获取节点列表
 ```http
 GET /api/v1/nodes
+Authorization: Bearer <TOKEN>
 ```
-**响应**:
+
+**响应**：
 ```json
 {
   "success": true,
@@ -63,11 +151,14 @@ GET /api/v1/nodes
       "hostname": "attacker-http-01",
       "cpu_cores": 8,
       "memory_gb": 16.0,
+      "network_interfaces": ["eth0:10.100.1.20"],
       "max_rps": 10000,
+      "max_pps": 50000,
       "max_concurrent": 5000,
       "status": "online",
       "last_heartbeat": "2024-01-15T10:30:00Z",
-      "labels": {"role": "http-attacker"}
+      "registered_at": "2024-01-15T10:00:00Z",
+      "labels": {"role": "http-attacker", "zone": "dmz"}
     }
   ]
 }
@@ -76,6 +167,7 @@ GET /api/v1/nodes
 #### 获取单节点详情
 ```http
 GET /api/v1/nodes/{node_id}
+Authorization: Bearer <TOKEN>
 ```
 
 ---
@@ -85,62 +177,59 @@ GET /api/v1/nodes/{node_id}
 #### 发起攻击
 ```http
 POST /api/v1/attacks/launch
+Authorization: Bearer <TOKEN>
 Content-Type: application/json
 ```
 
-**请求体**:
+**请求体完整参数**：
+
+| 字段 | 类型 | 必填 | 适用攻击 | 说明 | 约束 |
+|------|------|------|----------|------|------|
+| `attack_type` | enum | ✅ | 所有 | `http_flood` \| `syn_flood` \| `slowloris` \| `udp_flood` \| `udp_reflection` | - |
+| `target` | object | ✅ | 所有 | 目标规格 | 见下表 |
+| `duration` | int | ❌ | 所有 | 持续时间(秒) | 1-3600，默认 60 |
+| `rps` | int | ❌ | 所有 | 每秒请求/包数 | 1-100000，默认 1000 |
+| `concurrency` | int | ❌ | 所有 | 并发连接/线程数 | 1-10000，默认 100 |
+| `scenario_id` | string | ❌ | 所有 | 关联场景 ID | - |
+| `node_ids` | string[] | ❌ | 所有 | 指定节点，空=自动匹配 | - |
+| `priority` | int | ❌ | 所有 | 调度优先级，0-100，默认 0（数值越大越优先） | 0-100 |
+| `method` | enum | ❌ | HTTP | `GET` \| `POST` \| `HEAD` | 默认 GET |
+| `headers` | object | ❌ | HTTP | 自定义 Header | - |
+| `body` | string | ❌ | HTTP | POST Body 内容 | - |
+| `use_https` | bool | ❌ | HTTP | 使用 HTTPS | 默认 false |
+| `verify_ssl` | bool | ❌ | HTTP | 验证服务端证书 | 默认 false |
+| `source_ip_spoof` | bool | ❌ | RAW | 伪造源 IP | 默认 false |
+| `spoof_cidr` | string | ❌ | RAW | 伪造源 IP CIDR | 默认 10.0.0.0/8 |
+| `interface` | string | ❌ | RAW | 发包网卡名 | 如 eth0 |
+| `slowloris_interval` | int | ❌ | Slowloris | Header 发送间隔(秒) | 5-60，默认 15 |
+| `reflector_type` | enum | ❌ | UDP反射 | `ntp` \| `dns` \| `memcached` \| `ssdp` \| `snmp` (v1.1) | - |
+| `reflector_list` | string[] | ❌ | UDP反射 | 反射器 `IP:PORT` 列表 | 必填 |
+
+**Target 对象**：
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `ip` | string | ✅ | 目标 IP (必须在白名单) |
+| `port` | int | ❌ | 目标端口，默认 80 |
+| `protocol` | enum | ❌ | `tcp` \| `udp`，默认 tcp |
+| `path` | string | ❌ | HTTP 路径，默认 / |
+| `host_header` | string | ❌ | Host 头值 |
+
+**请求示例**：
 ```json
 {
   "attack_type": "http_flood",
-  "target": {
-    "ip": "10.100.10.10",
-    "port": 80,
-    "protocol": "tcp",
-    "path": "/api/search",
-    "host_header": "example.com"
-  },
+  "target": {"ip": "10.100.10.10", "port": 80, "protocol": "tcp", "path": "/api/search"},
   "duration": 60,
   "rps": 2000,
   "concurrency": 200,
-  "scenario_id": "cc_attack",
-  "node_ids": ["attacker-http-01", "attacker-http-02"],
   "method": "POST",
   "headers": {"Content-Type": "application/json"},
   "body": "{\"query\":\"test\"}",
-  "use_https": false,
-  "verify_ssl": false,
-  "source_ip_spoof": false,
-  "spoof_cidr": "10.0.0.0/8",
-  "interface": "eth0",
-  "slowloris_interval": 15,
-  "reflector_type": "ntp",
-  "reflector_list": ["10.100.200.10:123"]
+  "node_ids": ["attacker-http-01"]
 }
 ```
 
-**参数说明**:
-| 字段 | 类型 | 必填 | 攻击类型 | 说明 |
-|------|------|------|----------|------|
-| attack_type | enum | 是 | 所有 | http_flood/syn_flood/slowloris/udp_flood/udp_reflection |
-| target.ip | string | 是 | 所有 | 目标 IP (必须在白名单) |
-| target.port | int | 否 | 所有 | 默认 80 |
-| target.path | string | 否 | HTTP类 | 默认 / |
-| duration | int | 否 | 所有 | 持续秒数 (1-3600)，默认 60 |
-| rps | int | 否 | 所有 | 每秒请求/包数 (1-100000)，默认 1000 |
-| concurrency | int | 否 | 所有 | 并发连接/线程数 (1-10000)，默认 100 |
-| node_ids | string[] | 否 | 所有 | 指定节点，空=自动选择支持类型的在线节点 |
-| method | enum | 否 | HTTP | GET/POST/HEAD |
-| headers | object | 否 | HTTP | 自定义 Header |
-| body | string | 否 | HTTP | POST Body |
-| use_https | bool | 否 | HTTP | 是否使用 HTTPS |
-| source_ip_spoof | bool | 否 | RAW | 是否伪造源 IP |
-| spoof_cidr | string | 否 | RAW | 伪造源 IP 范围 |
-| interface | string | 否 | RAW | 发包网卡 |
-| slowloris_interval | int | 否 | Slowloris | Header 发送间隔(秒)，默认 15 |
-| reflector_type | enum | 否 | UDP反射 | ntp/dns/memcached/ssdp |
-| reflector_list | string[] | 否 | UDP反射 | 反射器 IP:端口列表 |
-
-**响应**:
+**响应**：
 ```json
 {
   "success": true,
@@ -159,9 +248,10 @@ Content-Type: application/json
 #### 停止攻击
 ```http
 POST /api/v1/attacks/{attack_id}/stop?reason=manual
+Authorization: Bearer <TOKEN>
 ```
 
-**响应**:
+**响应**：
 ```json
 {
   "success": true,
@@ -173,25 +263,27 @@ POST /api/v1/attacks/{attack_id}/stop?reason=manual
 #### 紧急熔断 (停止所有攻击)
 ```http
 POST /api/v1/emergency_stop
+Authorization: Bearer <TOKEN>
 Content-Type: application/json
 ```
 
-**请求体**:
+**请求体**：
 ```json
 {
-  "reason": "Business impact detected",
+  "reason": "Business impact detected - latency P99 > 5s",
   "issued_by": "instructor-zhang",
-  "target_node_ids": []  // 空=全网
+  "target_node_ids": []  // 空数组 = 全网节点
 }
 ```
 
-**响应**:
+**响应**：
 ```json
 {
   "success": true,
   "data": {
     "stopped_attacks": ["atk-a1b2c3d4e5f6", "atk-b2c3d4e5f6a7"],
-    "affected_nodes": ["attacker-http-01", "attacker-raw-01"]
+    "affected_nodes": ["attacker-http-01", "attacker-raw-01"],
+    "nodes_notified": 5
   },
   "message": "Emergency stop executed"
 }
@@ -200,19 +292,30 @@ Content-Type: application/json
 #### 复位熔断
 ```http
 POST /api/v1/emergency_stop/reset
+Authorization: Bearer <TOKEN>
+```
+
+**响应**：
+```json
+{
+  "success": true,
+  "message": "Emergency stop reset"
+}
 ```
 
 #### 查询攻击列表
 ```http
 GET /api/v1/attacks
+Authorization: Bearer <TOKEN>
 ```
 
 #### 查询攻击详情
 ```http
 GET /api/v1/attacks/{attack_id}
+Authorization: Bearer <TOKEN>
 ```
 
-**响应**:
+**响应**：
 ```json
 {
   "success": true,
@@ -245,54 +348,81 @@ GET /api/v1/attacks/{attack_id}
 #### 获取场景列表
 ```http
 GET /api/v1/scenarios
+Authorization: Bearer <TOKEN>
 ```
 
-**预设场景**:
-| ID | 名称 | 说明 |
-|----|------|------|
-| cc_attack | CC攻击基础演练 | HTTP Flood 测试限流/WAF |
-| syn_flood | SYN Flood演练 | 测试 SYN Cookie/连接队列 |
-| slowloris | Slowloris演练 | 测试连接超时/连接池 |
-| udp_reflection | UDP反射放大演练 | 测试 UDP限速/反射源过滤 |
-| mixed_wave | 多层混合波演练 | 综合多向量攻击 |
-| ramp_up | 渐进式压力测试 | 寻找性能拐点 |
+**预设场景表**：
+
+| 场景 ID | 名称 | 攻击向量 | 适用节点 | 典型用途 |
+|---------|------|----------|----------|----------|
+| `cc_attack` | CC攻击基础演练 | HTTP Flood | HTTP | WAF、应用层限流、IP 信誉测试 |
+| `syn_flood` | SYN Flood 演练 | SYN Flood | RAW | SYN Cookie、连接队列、防火墙状态检测 |
+| `slowloris` | Slowloris 慢速攻击 | Slowloris | HTTP | 连接耗尽、Web 服务器抗压、连接池测试 |
+| `udp_reflection` | UDP 反射放大演练 | UDP Reflection (NTP/DNS) | RAW | 反射放大、清洗设备吞吐、源端口过滤 |
+| `mixed_wave` | 多层混合波演练 | HTTP + SYN + Slowloris | 混合 | 多层联动防御、应急响应、红蓝对抗 |
+| `ramp_up` | 渐进式压力测试 | 阶梯式 HTTP/SYN | 所有 | 容量规划、性能拐点、熔断阈值验证 |
 
 #### 获取场景详情
 ```http
 GET /api/v1/scenarios/{scenario_id}
+Authorization: Bearer <TOKEN>
 ```
 
-#### 运行场景
+#### 运行场景 (支持参数覆盖)
 ```http
 POST /api/v1/scenarios/{scenario_id}/run
+Authorization: Bearer <TOKEN>
 Content-Type: application/json
 ```
 
-**请求体** (可选参数覆盖):
+> ⚠️ **overrides 必填**：内置场景 YAML 的目标 IP 均为 `TARGET_IP_PLACEHOLDER` 模板，
+> 服务端在启动前同步校验——若 overrides 未提供 `target.ip`（或值非法），
+> 接口直接返回 **400** 与具体缺失步骤说明，不会出现 200 后静默不执行的情况。
+
+**请求体**：
 ```json
 {
   "overrides": {
     "target": {"ip": "10.100.10.10"},
     "rps": 5000,
-    "duration": 120
+    "duration": 120,
+    "concurrency": 300
   }
+}
+```
+
+**响应**：
+```json
+{
+  "success": true,
+  "data": {"run_id": "scenario-run-a1b2c3d4"},
+  "message": "Scenario started"
+}
+```
+
+**校验失败响应 (400)**：
+```json
+{
+  "detail": "Step 0: target.ip is still a placeholder. Pass overrides like {'target': {'ip': '10.100.10.10'}}"
 }
 ```
 
 #### 停止场景
 ```http
 POST /api/v1/scenarios/{scenario_id}/stop
+Authorization: Bearer <TOKEN>
 ```
 
 ---
 
-### 限流状态
+### 限流状态查询
 
 ```http
 GET /api/v1/rate-limits
+Authorization: Bearer <TOKEN>
 ```
 
-**响应**:
+**响应**：
 ```json
 {
   "success": true,
@@ -303,59 +433,126 @@ GET /api/v1/rate-limits
     "used_rps": 15000,
     "used_pps": 0,
     "used_concurrent": 500,
-    "node_quotas": {
-      "attacker-http-01": {"rps": 5000, "pps": 0, "concurrent": 200},
-      "attacker-http-02": {"rps": 5000, "pps": 0, "concurrent": 200},
-      "attacker-raw-01": {"rps": 0, "pps": 5000, "concurrent": 100}
-    }
+    "quotas": [
+      {"attack_id": "atk-a1b2", "node_id": "attacker-http-01", "rps": 5000, "pps": 0, "concurrent": 200},
+      {"attack_id": "atk-a1b2", "node_id": "attacker-http-02", "rps": 5000, "pps": 0, "concurrent": 200},
+      {"attack_id": "atk-c3d4", "node_id": "attacker-raw-01", "rps": 0, "pps": 5000, "concurrent": 100}
+    ]
   }
 }
 ```
 
+> 配额按 `(attack_id, node_id)` 二元组记账：同一节点可并发承载多场攻击且互不覆盖；
+> 停止单场攻击只回收该场配额，紧急熔断清空全部。
+
 ---
 
-## 🔌 WebSocket 实时指标
+## 🔌 WebSocket 实时指标流
 
-### 连接
+### 连接建立
 ```bash
-wscat -c "wss://controller:8443/ws/metrics?token=<TOKEN>&channels=nodes,attacks,metrics,alerts,system&client_id=my-console"
+wscat -c "wss://<controller>:8443/ws/metrics?token=<TOKEN>&channels=nodes,attacks,metrics,alerts,system&client_id=web-ui"
 ```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `token` | ✅ | Controller Token (同 REST API) |
+| `channels` | ❌ | 逗号分隔，默认 `nodes,attacks,metrics,alerts,system` |
+| `client_id` | ❌ | 客户端标识，默认 `web-ui` |
 
 ### 消息格式
 ```json
 {
-  "type": "node_update|attack_start|attack_update|attack_stop|node_heartbeat|rate_limit_status|emergency_stop|audit_event",
+  "type": "node_update|attack_start|attack_update|attack_stop|node_heartbeat|rate_limit_status|emergency_stop|audit_event|system_event",
   "timestamp": "2024-01-15T10:30:00Z",
   "data": { ... }
 }
 ```
 
-### 频道订阅控制
+### 客户端控制指令
 ```json
-// 客户端发送
-{"type": "subscribe", "channels": ["nodes", "attacks"]}
-{"type": "unsubscribe", "channels": ["audit"]}
+// 订阅额外频道
+{"type": "subscribe", "channels": ["audit"]}
+
+// 取消订阅
+{"type": "unsubscribe", "channels": ["metrics"]}
+
+// 心跳保活
 {"type": "ping"}
 
 // 服务端响应
 {"type": "pong", "ts": "2024-01-15T10:30:00Z"}
 ```
 
+### 频道数据载荷示例
+
+**节点心跳** (`metrics` 频道)：
+```json
+{
+  "type": "node_heartbeat",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "data": {
+    "node_id": "attacker-http-01",
+    "cpu_percent": 45.2,
+    "memory_percent": 38.5,
+    "network_mbps": 125.6,
+    "active_connections": 1234,
+    "current_attacks": ["atk-a1b2c3d4"],
+    "status": "attacking"
+  }
+}
+```
+
+**攻击更新** (`attacks` 频道)：
+```json
+{
+  "type": "attack_update",
+  "timestamp": "2024-01-15T10:30:05Z",
+  "data": {
+    "attack_id": "atk-a1b2c3d4",
+    "node_id": "attacker-http-01",
+    "result": {
+      "status": "running",
+      "total_requests": 5000,
+      "successful_requests": 4950,
+      "failed_requests": 50,
+      "bytes_sent": 2048000,
+      "bytes_received": 4096000,
+      "metrics": {"latencies": [0.041, 0.043, 0.039]}
+    }
+  }
+}
+```
+
+**紧急熔断** (`alerts` + `system` 频道)：
+```json
+{
+  "type": "emergency_stop",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "level": "critical",
+  "data": {"reason": "Latency P99 > 5s", "issued_by": "instructor-zhang"}
+}
+```
+
 ---
 
-## 📊 Node API (Attacker 节点暴露)
+## 📊 Node API (Attacker 节点暴露，需 mTLS + Node Token)
+
+> **基础 URL**: `http://<attacker-host>:8080` (HTTP，内网无 TLS 终结)  
+> **认证 Headers**: `X-Node-ID` + `X-Node-Token`
 
 ### 健康检查
 ```http
-GET http://attacker:8080/health
+GET /health
+```
+```json
+{"status": "healthy", "node_id": "attacker-http-01", "timestamp": "2024-01-15T10:30:00Z"}
 ```
 
 ### Prometheus 指标
 ```http
-GET http://attacker:8080/metrics
+GET /metrics
 ```
-
-**输出示例**:
 ```
 ddos_node_cpu_percent{node_id="attacker-http-01"} 12.5
 ddos_node_memory_percent{node_id="attacker-http-01"} 34.2
@@ -364,102 +561,157 @@ ddos_node_network_mbps{node_id="attacker-http-01"} 45.6
 ddos_node_connections{node_id="attacker-http-01"} 234
 ```
 
-### 节点信息
+### 节点详细信息
 ```http
-GET http://attacker:8080/api/v1/info
-Headers: X-Node-ID, X-Node-Token
+GET /api/v1/info
+X-Node-ID: attacker-http-01
+X-Node-Token: <NODE_TOKEN>
 ```
 
-### 当前攻击列表
+### 当前执行的攻击
 ```http
-GET http://attacker:8080/api/v1/attacks
-Headers: X-Node-ID, X-Node-Token
+GET /api/v1/attacks
+X-Node-ID: attacker-http-01
+X-Node-Token: <NODE_TOKEN>
 ```
+
+### Controller → Node 下发指令端点 (v1.1)
+
+Controller 通过 NodeCommander 调用以下节点端点下发指令（认证同上）：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/attacks/execute` | POST | 执行攻击指令（body 为 AttackCommand JSON） |
+| `/api/v1/attacks/{attack_id}/stop` | POST | 停止指定攻击 |
+| `/api/v1/emergency_stop` | POST | 紧急熔断（body: `{reason, issued_by}`），置位后拒绝新指令 |
+| `/api/v1/emergency_stop/reset` | POST | **v1.1 新增**：熔断复位，清除节点侧全局熔断状态 |
+| `/api/v1/attacks` | GET | 查询节点当前攻击及结果摘要 |
+| `/api/v1/info` | GET | 节点详细信息 |
 
 ---
 
 ## 🚀 完整调用示例
 
-### Python 示例
+### Python 3.11+ (httpx)
 ```python
 import httpx
 import hmac
 import hashlib
 import os
+import asyncio
 
-SHARED_SECRET = os.getenv("SHARED_SECRET").encode()
+SHARED_SECRET = os.getenv("SHARED_SECRET", "changeme32charslongsecretkey123456").encode()
 CONTROLLER_URL = "https://10.100.1.10:8443"
 
-def get_token():
+def get_controller_token() -> str:
     return hmac.new(SHARED_SECRET, b"ddos-controller-auth", hashlib.sha256).hexdigest()
 
-async def launch_cc_attack(target_ip: str, rps: int = 2000):
-    async with httpx.AsyncClient(verify=False) as client:
+async def launch_cc_attack(target_ip: str, rps: int = 2000, duration: int = 60):
+    async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
         resp = await client.post(
             f"{CONTROLLER_URL}/api/v1/attacks/launch",
-            headers={"Authorization": f"Bearer {get_token()}"},
+            headers={"Authorization": f"Bearer {get_controller_token()}"},
             json={
                 "attack_type": "http_flood",
                 "target": {"ip": target_ip, "port": 80, "path": "/"},
-                "duration": 60,
+                "duration": duration,
                 "rps": rps,
                 "concurrency": 200
             }
         )
+        resp.raise_for_status()
         return resp.json()
 
 async def emergency_stop(reason: str, issued_by: str):
-    async with httpx.AsyncClient(verify=False) as client:
+    async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
         resp = await client.post(
             f"{CONTROLLER_URL}/api/v1/emergency_stop",
-            headers={"Authorization": f"Bearer {get_token()}"},
+            headers={"Authorization": f"Bearer {get_controller_token()}"},
             json={"reason": reason, "issued_by": issued_by}
         )
+        resp.raise_for_status()
         return resp.json()
+
+# 使用示例
+if __name__ == "__main__":
+    # 发起 CC 攻击
+    result = asyncio.run(launch_cc_attack("10.100.10.10", rps=2000))
+    print(f"Attack launched: {result['data']['attack_id']}")
+    
+    # 30 秒后紧急停止
+    await asyncio.sleep(30)
+    result = asyncio.run(emergency_stop("Training complete", "auto-script"))
+    print(f"Emergency stop: {result['data']['stopped_attacks']}")
 ```
 
-### cURL 示例
+### cURL 速查表
 ```bash
-# 设置 Token
-TOKEN=$(echo -n "ddos-controller-auth" | openssl dgst -sha256 -hmac "$SHARED_SECRET" | cut -d' ' -f2)
+# 环境变量
+export SHARED_SECRET="changeme32charslongsecretkey123456"
+export CONTROLLER_URL="https://10.100.1.10:8443"
+export TOKEN=$(echo -n "ddos-controller-auth" | openssl dgst -sha256 -hmac "$SHARED_SECRET" | awk '{print $2}')
 
-# 发起攻击
-curl -k -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -X POST https://10.100.1.10:8443/api/v1/attacks/launch \
-  -d '{"attack_type":"http_flood","target":{"ip":"10.100.10.10"},"duration":60,"rps":2000}'
+# 发起 HTTP Flood
+curl -k -X POST "$CONTROLLER_URL/api/v1/attacks/launch" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"attack_type":"http_flood","target":{"ip":"10.100.10.10","port":80},"duration":60,"rps":2000,"concurrency":200}'
 
-# 紧急停止
-curl -k -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -X POST https://10.100.1.10:8443/api/v1/emergency_stop \
-  -d '{"reason":"Training complete","issued_by":"instructor"}'
+# 发起 SYN Flood (需 RAW 节点)
+curl -k -X POST "$CONTROLLER_URL/api/v1/attacks/launch" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"attack_type":"syn_flood","target":{"ip":"10.100.10.10","port":80},"duration":60,"rps":10000,"concurrency":4,"source_ip_spoof":true,"spoof_cidr":"10.0.0.0/8","interface":"eth0"}'
+
+# 运行预设场景
+curl -k -X POST "$CONTROLLER_URL/api/v1/scenarios/mixed_wave/run" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"overrides":{"target":{"ip":"10.100.10.10"},"rps":3000,"duration":120}}'
+
+# 紧急熔断
+curl -k -X POST "$CONTROLLER_URL/api/v1/emergency_stop" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"Business impact","issued_by":"instructor"}'
+
+# 复位熔断
+curl -k -X POST "$CONTROLLER_URL/api/v1/emergency_stop/reset" -H "Authorization: Bearer $TOKEN"
 
 # 查看节点
-curl -k -H "Authorization: Bearer $TOKEN" \
-  https://10.100.1.10:8443/api/v1/nodes
+curl -k "$CONTROLLER_URL/api/v1/nodes" -H "Authorization: Bearer $TOKEN"
+
+# 查看限流状态
+curl -k "$CONTROLLER_URL/api/v1/rate-limits" -H "Authorization: Bearer $TOKEN"
+
+# WebSocket 连接
+wscat -c "$CONTROLLER_URL/ws/metrics?token=$TOKEN&channels=nodes,attacks,metrics,alerts,system"
 ```
 
 ---
 
-## ⚠️ 错误码
+## ⚠️ 错误码对照表
 
-| HTTP 码 | 含义 |
-|---------|------|
-| 200 | 成功 |
-| 400 | 参数错误 (如目标不在白名单) |
-| 401 | 认证失败 (Token 无效/过期) |
-| 403 | 权限不足 (如非管理员触发熔断复位) |
-| 404 | 资源不存在 (攻击ID/场景ID/节点ID) |
-| 409 | 冲突 (熔断激活时发起攻击、场景重复运行) |
-| 422 | 业务校验失败 (配额耗尽、节点不支持攻击类型) |
-| 500 | 内部错误 |
-| 503 | 服务未就绪 (编排器未初始化) |
+| HTTP 码 | 错误码 | 含义 | 处理建议 |
+|---------|--------|------|----------|
+| 200 | - | 成功 | - |
+| 400 | `VALIDATION_ERROR` | 参数校验失败 (目标不在白名单、参数越界) | 检查请求体、确认目标 IP 在白名单 |
+| 401 | `UNAUTHORIZED` | 认证失败 (Token 无效/过期/缺失) | 重新生成 Token、检查 SHARED_SECRET 一致性 |
+| 403 | `FORBIDDEN` | 权限不足 (非管理员操作熔断复位) | 确认调用者身份、权限矩阵 |
+| 404 | `NOT_FOUND` | 资源不存在 (攻击 ID/场景 ID/节点 ID) | 确认资源 ID 正确性 |
+| 409 | `CONFLICT` | 状态冲突 (熔断激活时发起攻击、场景重复运行) | 先复位熔断或停止冲突场景 |
+| 422 | `QUOTA_EXHAUSTED` | 业务校验失败 (全局配额耗尽、节点不支持攻击类型) | 等待配额释放、调整节点部署 |
+| 500 | `INTERNAL_ERROR` | 内部错误 | 查看 Controller 日志、联系运维 |
+| 503 | `SERVICE_UNAVAILABLE` | 服务未就绪 (编排器未初始化) | 等待启动完成、检查依赖服务 |
 
 ---
 
 ## 📝 版本历史
 
-| 版本 | 日期 | 变更 |
-|------|------|------|
-| v1.0 | 2024-01-15 | 初始版本 |
+| 版本 | 日期 | 变更摘要 |
+|------|------|----------|
+| v1.1 | 2024-12-19 | 新增 Node API 文档、完善错误码、补充 Python/cURL 示例、修复 datetime 序列化说明；rate-limits 响应改为 quotas 数组（按 attack_id+node_id 记账）；场景运行 overrides 必填（400 校验）；新增 emergency_stop/reset 端点；节点注册/心跳/注销/结果上报身份一致性校验 (403)；TLS_VERIFY_CLIENT 开关说明 |
+| v1.0 | 2024-01-15 | 初始版本：REST API、WebSocket、场景管理、限流查询 |
+
+---
+
+**文档控制**：
+- API 变更需向前兼容，破坏性变更需发布 v2.0
+- 所有变更同步更新 OpenAPI Spec (`controller/openapi.json`)
+- 变更通知：内部邮件列表 `sec-api@internal`
