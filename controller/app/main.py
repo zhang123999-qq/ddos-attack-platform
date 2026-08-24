@@ -598,10 +598,28 @@ if templates:
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
         # starlette>=0.29 新签名: request 首参 + name/context 关键字 (旧二元组传法已移除)
+        # BUG-16 修复: 服务端注入 ui_token — 原先模板 {{ token }} 渲染为空,
+        # 前端退化为 localStorage/prompt, 用户无法手工得出 HMAC → 全部 API 401
+        # (表现为「生成安装命令失败」+ WebSocket 断开重连死循环)
+        # BUG-17: 端口不再硬编码 8443 — 从请求 Host 头解析, 支持自定义端口部署
+        host_header = request.headers.get("host") or request.url.netloc
+        if ":" in host_header:
+            hostname, port = host_header.rsplit(":", 1)
+            try:
+                port = str(int(port))
+            except ValueError:
+                hostname, port = host_header, "443"
+        else:
+            hostname, port = host_header, "443"
         return templates.TemplateResponse(
             request=request,
             name="dashboard.html",
-            context={"request": request, "controller_host": request.url.hostname},
+            context={
+                "request": request,
+                "controller_host": request.url.hostname,
+                "controller_port": port,
+                "token": auth_config.ui_token(),
+            },
         )
 
 

@@ -357,11 +357,11 @@
     </div>
 
     <script>
-        // 配置
-        const TOKEN = "{{ token }}" || localStorage.getItem('ddos_token') || prompt('请输入 Controller Token:');
+        // 配置 (token 由服务端渲染注入; localStorage 仅作旧值清理参考)
+        const TOKEN = "{{ token }}" || localStorage.getItem('ddos_token') || '';
         if (TOKEN) localStorage.setItem('ddos_token', TOKEN);
-        const WS_URL = `wss://{{ controller_host }}:8443/ws/metrics?token=${TOKEN}&channels=nodes,attacks,metrics,alerts,system`;
-        const API_BASE = `https://{{ controller_host }}:8443/api/v1`;
+        const WS_URL = `wss://{{ controller_host }}:{{ controller_port }}/ws/metrics?token=${TOKEN}&channels=nodes,attacks,metrics,alerts,system`;
+        const API_BASE = `https://{{ controller_host }}:{{ controller_port }}/api/v1`;
 
         // 状态
         let ws = null;

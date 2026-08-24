@@ -70,6 +70,10 @@ class AuthConfig:
         expected = hmac.new(self.shared_secret, b"ddos-controller-auth", hashlib.sha256).hexdigest()
         return hmac.compare_digest(token, expected)
 
+    def ui_token(self) -> str:
+        """WebUI 专用 Token — 服务端渲染时注入 dashboard, 免去用户手工计算 HMAC"""
+        return hmac.new(self.shared_secret, b"ddos-controller-auth", hashlib.sha256).hexdigest()
+
     def generate_node_token(self, node_id: str) -> str:
         """为节点生成专用 Token (HMAC-SHA256 with node_id)"""
         return hmac.new(self.shared_secret, node_id.encode(), hashlib.sha256).hexdigest()
