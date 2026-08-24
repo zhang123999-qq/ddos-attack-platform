@@ -71,3 +71,7 @@ def main():
 if __name__ == "__main__":
     main()
     print("ALL API SMOKE TESTS PASSED")
+else:
+    # pytest 入口: 复用脚本式 main() 作为单个收集单元
+    def test_api_smoke_end_to_end():
+        main()
