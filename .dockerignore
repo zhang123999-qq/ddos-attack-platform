@@ -28,7 +28,10 @@ Thumbs.db
 
 # Build
 build/
-deploy/
+
+# Deploy: 仅放行节点安装脚本 (controller 镜像内打包分发 /install.sh)
+deploy/*
+!deploy/node-install.sh
 
 # Docker
 Dockerfile*
@@ -49,5 +52,5 @@ monitor/
 # Target
 target/
 
-# Scenarios (bundled with controller)
-scenarios/
+# Scenarios: controller 镜像内置场景 (compose 挂载同名路径, 镜像内兜底)
+!scenarios/

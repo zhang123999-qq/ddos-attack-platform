@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
-COPY requirements.txt .
+# 复制依赖文件 (context = 仓库根)
+COPY controller/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码 (context = 仓库根)
@@ -17,6 +17,9 @@ COPY controller/app/ ./app/
 
 # 节点一键安装脚本随镜像分发 (GET /install.sh 端点读取)
 COPY deploy/node-install.sh /app/deploy/node-install.sh
+
+# 内置场景 (compose 挂载可覆盖; 镜像内兜底保证开箱可用)
+COPY scenarios/ /app/scenarios/
 
 # 制品目录: 挂载或构建时放入 ddos-attacker-linux-*.tar.gz 供节点就近下载
 RUN mkdir -p /app/artifacts
