@@ -17,6 +17,7 @@ services:
       - NODE_KEY=/certs/node-key.pem
       - NODE_TOKEN=${NODE_TOKEN}
       - SHARED_SECRET=${SHARED_SECRET}
+      - REQUIRE_SHARED_SECRET=true
       - ATTACK_TYPES=http_flood,slowloris
       - MAX_RPS=${MAX_RPS:-10000}
       - MAX_CONCURRENT=${MAX_CONCURRENT:-5000}
@@ -32,7 +33,7 @@ services:
     networks:
       - ddos-lab
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3

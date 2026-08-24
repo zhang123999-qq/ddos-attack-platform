@@ -21,7 +21,9 @@ CONTROLLER_IP="${CONTROLLER_IP:-10.100.1.10}"
 CONTROLLER_HOSTNAME="${CONTROLLER_HOSTNAME:-ddos-controller}"
 NODE_IPS="${NODE_IPS:-10.100.1.20 10.100.1.21}"
 NODE_HOSTNAMES="${NODE_HOSTNAMES:-attacker-http-01 attacker-raw-01}"
-DAYS_VALID="${DAYS_VALID:-3650}"  # 10年
+# 有效期分层 (对齐 README 轮换红线: CA 2年、节点证书 1年)
+DAYS_VALID_CA="${DAYS_VALID_CA:-730}"
+DAYS_VALID_NODE="${DAYS_VALID_NODE:-365}"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -44,8 +46,8 @@ if [[ ! -f "${CA_KEY}" ]]; then
 fi
 
 if [[ ! -f "${CA_CERT}" ]]; then
-    log_info "Generating CA certificate..."
-    openssl req -x509 -new -nodes -key "${CA_KEY}" -sha256 -days "${DAYS_VALID}" \
+    log_info "Generating CA certificate (valid ${DAYS_VALID_CA} days)..."
+    openssl req -x509 -new -nodes -key "${CA_KEY}" -sha256 -days "${DAYS_VALID_CA}" \
         -out "${CA_CERT}" \
         -subj "/CN=DDoS Lab CA/O=Internal Security Team/OU=Red Team"
 fi
@@ -82,10 +84,10 @@ if [[ ! -f "${CONTROLLER_KEY}" ]]; then
 fi
 
 if [[ ! -f "${CONTROLLER_CERT}" ]]; then
-    log_info "Generating Controller certificate..."
+    log_info "Generating Controller certificate (valid ${DAYS_VALID_NODE} days)..."
     openssl req -new -key "${CONTROLLER_KEY}" -out "${CONTROLLER_CSR}" -config "${CONTROLLER_CONF}"
     openssl x509 -req -in "${CONTROLLER_CSR}" -CA "${CA_CERT}" -CAkey "${CA_KEY}" \
-        -CAcreateserial -out "${CONTROLLER_CERT}" -days "${DAYS_VALID}" -sha256 \
+        -CAcreateserial -out "${CONTROLLER_CERT}" -days "${DAYS_VALID_NODE}" -sha256 \
         -extensions v3_req -extfile "${CONTROLLER_CONF}"
 fi
 
@@ -138,10 +140,10 @@ EOF
     fi
     
     if [[ ! -f "${NODE_CERT}" ]]; then
-        log_info "Generating node cert for ${NODE_HOST}..."
+        log_info "Generating node cert for ${NODE_HOST} (valid ${DAYS_VALID_NODE} days)..."
         openssl req -new -key "${NODE_KEY}" -out "${NODE_CSR}" -config "${NODE_CONF}"
         openssl x509 -req -in "${NODE_CSR}" -CA "${CA_CERT}" -CAkey "${CA_KEY}" \
-            -CAcreateserial -out "${NODE_CERT}" -days "${DAYS_VALID}" -sha256 \
+            -CAcreateserial -out "${NODE_CERT}" -days "${DAYS_VALID_NODE}" -sha256 \
             -extensions v3_req -extfile "${NODE_CONF}"
     fi
     

@@ -12,6 +12,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+# C-5 加固: 全局最小权限, 各 job 按需放大
+permissions:
+  contents: read
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -58,7 +62,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # C-5 修复: 缓存按 ref + service 隔离, 阻断跨分支缓存投毒路径
+          cache-from: type=gha,scope=build-${{ matrix.service }}-${{ github.ref }}
+          cache-to: type=gha,mode=max,scope=build-${{ matrix.service }}-${{ github.ref }}
           build-args: |
             SERVICE_TYPE=${{ matrix.service }}

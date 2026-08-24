@@ -5,6 +5,7 @@ import aiohttp
 import ssl
 import random
 import time
+from collections import deque
 from typing import Optional
 import structlog
 
@@ -12,6 +13,16 @@ from app.attacks.base import SafeAttackBase, AttackRegistry
 from app.models import AttackCommand, AttackParams, AttackType, AttackStatus
 
 logger = structlog.get_logger(__name__)
+
+# P2 修复: 延迟样本上限 (原实现无限 append, 高 RPS 长攻击内存暴涨)
+LATENCY_SAMPLE_MAX = 5000
+
+
+def _percentile(sorted_samples, pct: float) -> float:
+    if not sorted_samples:
+        return 0.0
+    idx = min(len(sorted_samples) - 1, int(round(pct / 100.0 * (len(sorted_samples) - 1))))
+    return sorted_samples[idx]
 
 
 class HTTPFloodAttack(SafeAttackBase):
@@ -22,7 +33,8 @@ class HTTPFloodAttack(SafeAttackBase):
     - 支持 HTTP/HTTPS
     - 自定义 Header/Body/Method
     - 请求级限流
-    - 统计成功/失败/字节数
+    - 统计成功/失败/字节数 (真实字节口径)
+    - 延迟有界采样 + p50/p95/p99
     """
     
     NAME = "http_flood"
@@ -44,19 +56,31 @@ class HTTPFloodAttack(SafeAttackBase):
         super().__init__(command)
         self.session: Optional[aiohttp.ClientSession] = None
         self.connector: Optional[aiohttp.TCPConnector] = None
-    
+        self._latencies = deque(maxlen=LATENCY_SAMPLE_MAX)
+        self._request_overhead = 0  # 每请求固定发送字节 (请求行+头部)
+
     async def _run(self):
         # 构造目标 URL
         target = self.params.target
         scheme = "https" if target.protocol == "tcp" and (target.port == 443 or self.params.use_https) else "http"
         url = f"{scheme}://{target.ip}:{target.port}{target.path}"
-        
+
         # 准备请求头
         headers = dict(self.params.headers)
         if "User-Agent" not in headers:
             headers["User-Agent"] = random.choice(self.USER_AGENTS)
         if target.host_header:
             headers["Host"] = target.host_header
+
+        # P2 修复: 真实字节口径 — 请求行 + 头部 + body 的固定开销,
+        # 原实现把 Content-Length header 的字符串长度当作发送字节数
+        request_line = f"{self.params.method.upper()} {target.path} HTTP/1.1\r\n"
+        self._request_overhead = (
+            len(request_line)
+            + sum(len(k) + len(v) + 4 for k, v in headers.items())
+            + len(self.params.body or "")
+            + 2  # 终结空行
+        )
         
         # SSL 上下文
         ssl_context = None
@@ -107,31 +131,30 @@ class HTTPFloodAttack(SafeAttackBase):
         while not self._check_stop():
             try:
                 await self.rate_limiter.wait_for_token()
-                
+
                 if self._check_stop():
                     break
-                
+
                 start = time.monotonic()
-                
+
                 if method == "GET":
                     async with self.session.get(url) as resp:
-                        await resp.read()
-                        self._update_bytes(sent=len(resp.headers.get("Content-Length", "0")), received=resp.content_length or 0)
+                        data = await resp.read()
                 elif method == "POST":
                     async with self.session.post(url, data=body) as resp:
-                        await resp.read()
-                        self._update_bytes(sent=len(body) if body else 0, received=resp.content_length or 0)
-                elif method == "HEAD":
+                        data = await resp.read()
+                else:  # HEAD
                     async with self.session.head(url) as resp:
-                        pass
-                
+                        data = b""
+
+                latency = time.monotonic() - start
+                self._latencies.append(latency)
+
                 self.result.total_requests += 1
                 self.result.successful_requests += 1
-                
-                # 记录延迟
-                latency = time.monotonic() - start
-                self.result.metrics.setdefault("latencies", []).append(latency)
-                
+                # 发送 = 固定请求开销; 接收 = 实际读取的响应体字节 (含 chunked)
+                self._update_bytes(sent=self._request_overhead, received=len(data))
+
             except asyncio.CancelledError:
                 break
             except aiohttp.ClientError as e:
@@ -142,8 +165,17 @@ class HTTPFloodAttack(SafeAttackBase):
                 self.result.total_requests += 1
                 self.result.failed_requests += 1
                 self.result.errors.append(f"Error: {e}")
-    
+
     async def _cleanup(self):
+        # 输出有界采样的分位数摘要 (样本上限 LATENCY_SAMPLE_MAX)
+        if self._latencies:
+            samples = sorted(self._latencies)
+            self.result.metrics["latency_sample_count"] = len(samples)
+            self.result.metrics["latency_p50"] = round(_percentile(samples, 50), 6)
+            self.result.metrics["latency_p95"] = round(_percentile(samples, 95), 6)
+            self.result.metrics["latency_p99"] = round(_percentile(samples, 99), 6)
+            self.result.metrics["latency_avg"] = round(sum(samples) / len(samples), 6)
+            self.result.metrics.pop("latencies", None)
         await super()._cleanup()
         if self.session and not self.session.closed:
             await self.session.close()

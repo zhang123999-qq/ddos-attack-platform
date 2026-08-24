@@ -14,6 +14,14 @@ logger = structlog.get_logger(__name__)
 class NodeCrypto:
     """节点端 mTLS + Token 管理"""
     
+    # 弱密钥黑名单前缀 (C-4 修复)
+    INSECURE_PREFIXES = ("changeme", "insecure-default")
+
+    def _is_weak_secret(self, raw: str) -> bool:
+        if len(raw) < 32:
+            return True
+        return any(raw.startswith(p) for p in self.INSECURE_PREFIXES)
+
     def __init__(self):
         self.ca_cert = os.getenv("CONTROLLER_CA_CERT", "/certs/ca-cert.pem")
         self.node_cert = os.getenv("NODE_CERT", "/certs/node-cert.pem")
@@ -22,10 +30,20 @@ class NodeCrypto:
         self.node_id = os.getenv("NODE_ID", "unknown-node")
         self.node_token = os.getenv("NODE_TOKEN", "")
         self.shared_secret = os.getenv("SHARED_SECRET", "").encode()
-        
+
         if not self.shared_secret:
             logger.warning("shared_secret_not_set_using_insecure_default")
             self.shared_secret = b"insecure-default-change-me-32chars"
+
+        # C-4 加固: REQUIRE_SHARED_SECRET=true 时拒绝弱密钥启动 (生产/部署镜像默认开启)
+        if os.getenv("REQUIRE_SHARED_SECRET", "false").lower() == "true":
+            raw = os.getenv("SHARED_SECRET", "")
+            if not raw or self._is_weak_secret(raw):
+                logger.error(
+                    "weak_shared_secret_rejected",
+                    hint="set SHARED_SECRET to >=32 random chars (openssl rand -hex 32)",
+                )
+                raise SystemExit(1)
     
     def create_ssl_context(self) -> ssl.SSLContext:
         """创建连接 Controller 的 mTLS 客户端上下文"""

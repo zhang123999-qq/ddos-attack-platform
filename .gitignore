@@ -23,6 +23,13 @@ dist/
 *.whl
 .venv/
 venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Test artifacts (TLS E2E 临时证书)
+controller/tests/_tmp_certs/
+attacker/tests/_tmp_certs/
 
 # Build artifacts
 build/_*build/

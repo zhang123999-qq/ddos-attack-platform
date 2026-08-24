@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any, Dict
 from logging.handlers import RotatingFileHandler
@@ -41,12 +41,23 @@ class AuditLogger:
         self.logger.propagate = False
 
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
+        self._bg_tasks: set = set()  # 广播任务引用, 防 GC
         self._writer_task: Optional[asyncio.Task] = None
+        self._retention_task: Optional[asyncio.Task] = None
         self._running = False
+        # M-2 修复: 广播钩子由 main.py 注入 (broadcast_audit_event), 解耦避免循环导入;
+        # 使 WebSocket audit 频道真正收到推送 (原先为死代码)
+        self._broadcast_hook: Optional[Any] = None
+
+    def set_broadcast_hook(self, hook) -> None:
+        """注入 async callable(event_dict); 由应用装配层调用"""
+        self._broadcast_hook = hook
 
     async def start(self):
         self._running = True
         self._writer_task = asyncio.create_task(self._writer_loop())
+        # C-3/M-4 修复: 启动按天保留清理任务 (AUDIT_RETENTION_DAYS 原先无任何引用)
+        self._retention_task = asyncio.create_task(self._retention_loop())
         await self.log_event(AuditEvent(
             event_id=self._gen_id(),
             event_type="config_change",
@@ -75,6 +86,13 @@ class AuditLogger:
                 await asyncio.wait_for(self._writer_task, timeout=5.0)
             except asyncio.TimeoutError:
                 pass
+        for t in (self._retention_task,):
+            if t:
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
 
         # 4. 关闭文件处理器
         self.file_handler.close()
@@ -86,10 +104,53 @@ class AuditLogger:
                 if event is None:
                     break
                 self._write(event)
+                # audit 频道实时推送 (钩子异常不影响落盘)
+                if self._broadcast_hook is not None:
+                    try:
+                        import asyncio as _aio
+                        payload = event.model_dump(mode='json')
+                        task = _aio.create_task(self._safe_broadcast(payload))
+                        self._bg_tasks.add(task)
+                        task.add_done_callback(self._bg_tasks.discard)
+                    except Exception:
+                        pass
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
                 print(f"Audit writer error: {e}")
+
+    async def _safe_broadcast(self, payload: dict):
+        try:
+            if self._broadcast_hook is not None:
+                await self._broadcast_hook(payload)
+        except Exception:
+            pass
+
+    # ========== 按天保留清理 ==========
+
+    async def _retention_loop(self):
+        """每小时扫描一次轮转备份, 删除超过 AUDIT_RETENTION_DAYS 的历史文件。
+        当前文件 (audit.jsonl) 不删 — 大小由 RotatingFileHandler 控制。"""
+        import asyncio as _aio
+        while True:
+            try:
+                cutoff = datetime.now(timezone.utc).timestamp() - self.retention_days * 86400
+                pattern = f"{self.log_path.name}.*"
+                parent = self.log_path.parent
+                if parent.exists():
+                    removed = 0
+                    for f in parent.glob(pattern):
+                        try:
+                            if f.is_file() and f.stat().st_mtime < cutoff:
+                                f.unlink()
+                                removed += 1
+                        except OSError:
+                            pass
+                    if removed:
+                        print(f"Audit retention: removed {removed} expired file(s)")
+            except Exception as e:
+                print(f"Audit retention error: {e}")
+            await _aio.sleep(3600)
 
     def _write(self, event: AuditEvent):
         self.logger.info(event.model_dump_json())
@@ -111,7 +172,7 @@ class AuditLogger:
             scenario_id=command.scenario_id,
             details={
                 "attack_type": command.attack_type.value,
-                "target": command.params.target.model_dump(),
+                "target": command.params.target.model_dump(mode='json'),
                 "duration": command.params.duration,
                 "rps": command.params.rps,
                 "concurrency": command.params.concurrency,
@@ -138,7 +199,7 @@ class AuditLogger:
             actor="node",
             attack_id=result.attack_id,
             node_id=result.node_id,
-            details=result.model_dump(),
+            details=result.model_dump(mode='json'),
             success=is_success
         ))
 
@@ -156,7 +217,7 @@ class AuditLogger:
             event_type="node_register",
             actor="node",
             node_id=node.node_id,
-            details=node.model_dump()
+            details=node.model_dump(mode='json')
         ))
 
     async def log_node_heartbeat(self, node_id: str, cpu: float, mem: float, net_mbps: float):
@@ -190,7 +251,7 @@ class AuditLogger:
 
     @staticmethod
     def _gen_id() -> str:
-        return f"audit-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{os.urandom(4).hex()}"
+        return f"audit-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{os.urandom(4).hex()}"
 
 
 audit_logger = AuditLogger()
@@ -198,7 +259,7 @@ audit_logger = AuditLogger()
 
 # Structlog 配置
 def add_audit_fields(logger, method_name, event_dict: EventDict) -> EventDict:
-    event_dict.setdefault("timestamp", datetime.utcnow().isoformat() + "Z")
+    event_dict.setdefault("timestamp", datetime.now(timezone.utc).isoformat() + "Z")
     event_dict.setdefault("service", "ddos-controller")
     return event_dict
 

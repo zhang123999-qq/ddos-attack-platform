@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 import ipaddress
 
 
@@ -68,7 +68,7 @@ class AttackParams(BaseModel):
     slowloris_interval: int = Field(default=15, ge=5, le=60)
     
     # UDP Reflection
-    reflector_type: Optional[Literal["ntp", "dns", "memcached", "ssdp"]] = None
+    reflector_type: Optional[Literal["ntp", "dns", "memcached", "ssdp", "snmp"]] = None
     reflector_list: Optional[List[str]] = None
 
 
@@ -79,7 +79,7 @@ class AttackCommand(BaseModel):
     scenario_id: Optional[str] = None
     node_ids: List[str] = Field(default_factory=list)
     priority: int = Field(default=0, ge=0, le=100)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AttackResult(BaseModel):
@@ -111,13 +111,13 @@ class NodeInfo(BaseModel):
     max_concurrent: int = 5000
     status: NodeStatus = NodeStatus.REGISTERING
     last_heartbeat: Optional[datetime] = None
-    registered_at: datetime = Field(default_factory=datetime.utcnow)
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     labels: Dict[str, str] = Field(default_factory=dict)
 
 
 class NodeHeartbeat(BaseModel):
     node_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     cpu_percent: float
     memory_percent: float
     network_mbps: float
@@ -129,5 +129,5 @@ class NodeHeartbeat(BaseModel):
 class EmergencyStopCommand(BaseModel):
     reason: str
     issued_by: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     target_node_ids: List[str] = Field(default_factory=list)

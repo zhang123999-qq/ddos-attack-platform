@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 import asyncio
+import hmac
 import uuid
 import signal
 import socket
 import platform
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Callable, Awaitable
 from pathlib import Path
 
@@ -140,17 +141,30 @@ async def verify_node_auth(
 # ========== Controller 通信 ==========
 
 async def register_with_controller():
-    """向 Controller 注册节点"""
+    """向 Controller 注册节点 — 带退避重试 (P2: 原实现失败即崩溃退出)"""
     url = f"{node_crypto.controller_url}/api/v1/nodes/register"
     headers = node_crypto.get_auth_headers()
-    
-    try:
-        resp = await http_client.post(url, json=node_info.model_dump(), headers=headers)
-        resp.raise_for_status()
-        logger.info("controller_registered", node_id=node_crypto.node_id)
-    except Exception as e:
-        logger.error("controller_register_failed", error=str(e))
-        raise
+
+    max_attempts = int(os.getenv("REGISTER_MAX_RETRIES", "10"))
+    retry_delay = float(os.getenv("REGISTER_RETRY_DELAY", "3"))
+    last_error: Optional[Exception] = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = await http_client.post(url, json=node_info.model_dump(mode='json'), headers=headers)
+            resp.raise_for_status()
+            logger.info("controller_registered", node_id=node_crypto.node_id, attempt=attempt)
+            return
+        except Exception as e:
+            last_error = e
+            logger.warning("controller_register_retry",
+                           node_id=node_crypto.node_id, attempt=attempt,
+                           max_attempts=max_attempts, error=str(e))
+            if attempt < max_attempts:
+                await asyncio.sleep(retry_delay * attempt)  # 线性退避
+
+    logger.error("controller_register_failed", error=str(last_error))
+    raise RuntimeError(f"Cannot register with controller after {max_attempts} attempts: {last_error}")
 
 
 async def unregister_from_controller():
@@ -177,7 +191,7 @@ async def send_heartbeat():
     headers = node_crypto.get_auth_headers()
     
     try:
-        resp = await http_client.post(url, json=hb.model_dump(), headers=headers)
+        resp = await http_client.post(url, json=hb.model_dump(mode='json'), headers=headers)
         resp.raise_for_status()
     except Exception as e:
         logger.warning("heartbeat_failed", error=str(e))
@@ -192,7 +206,7 @@ async def send_attack_result(result: AttackResult):
     headers = node_crypto.get_auth_headers()
     
     try:
-        resp = await http_client.post(url, json=result.model_dump(), headers=headers)
+        resp = await http_client.post(url, json=result.model_dump(mode='json'), headers=headers)
         resp.raise_for_status()
     except Exception as e:
         logger.warning("send_result_failed", attack_id=result.attack_id, error=str(e))
@@ -318,13 +332,18 @@ async def health():
     return {
         "status": "healthy",
         "node_id": node_crypto.node_id,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 
 @app.get("/metrics")
-async def metrics():
-    """Prometheus 指标"""
+async def metrics(request: Request):
+    """Prometheus 指标 — 设置 METRICS_TOKEN 环境变量后启用 Bearer 认证"""
+    expected_token = os.getenv("METRICS_TOKEN", "")
+    if expected_token:
+        auth_header = request.headers.get("Authorization", "")
+        if not hmac.compare_digest(auth_header, f"Bearer {expected_token}"):
+            raise HTTPException(status_code=401, detail="Metrics token required")
     if health_monitor:
         return health_monitor.get_prometheus_metrics()
     return ""
@@ -363,6 +382,14 @@ async def emergency_stop_endpoint(
     return {"success": True, "message": "Emergency stop executed"}
 
 
+@app.post("/api/v1/emergency_stop/reset", response_model=dict)
+async def emergency_reset_endpoint(auth: bool = Depends(verify_node_auth)):
+    """P1-1 修复: Controller 广播复位 — 清除全局熔断, 节点恢复可接受攻击指令"""
+    SafeAttackBase.set_emergency_stop(False)
+    logger.info("emergency_stop_reset_received", node_id=node_crypto.node_id)
+    return {"success": True, "message": "Emergency stop reset"}
+
+
 @app.get("/api/v1/attacks", response_model=dict)
 async def list_current_attacks(auth: bool = Depends(verify_node_auth)):
     """查询当前正在进行的攻击"""
@@ -379,7 +406,7 @@ async def list_current_attacks(auth: bool = Depends(verify_node_auth)):
 @app.get("/api/v1/info", response_model=dict)
 async def get_node_info(auth: bool = Depends(verify_node_auth)):
     """获取节点详细信息"""
-    return node_info.model_dump() if node_info else {}
+    return node_info.model_dump(mode='json') if node_info else {}
 
 
 # 信号处理

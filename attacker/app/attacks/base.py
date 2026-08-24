@@ -6,7 +6,7 @@ import time
 import ipaddress
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from ipaddress import ip_network, ip_address
 import structlog
 
@@ -72,8 +72,8 @@ class SafeAttackBase(ABC):
     
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        # 自动加载白名单
-        cidrs_str = os.getenv("ALLOWED_TARGET_CIDRS", "10.0.0.0/8,192.168.0.0/16")
+        # 自动加载白名单 (M-1 修复: 兜底收窄为回环, 真实网段必须显式声明)
+        cidrs_str = os.getenv("ALLOWED_TARGET_CIDRS", "127.0.0.0/8")
         cls.ALLOWED_TARGET_CIDRS = [c.strip() for c in cidrs_str.split(",") if c.strip()]
         cls._allowed_networks = [ip_network(c, strict=False) for c in cls.ALLOWED_TARGET_CIDRS]
         logger.info("attack_class_loaded", name=cls.NAME, allowed_cidrs=cls.ALLOWED_TARGET_CIDRS)
@@ -158,7 +158,7 @@ class SafeAttackBase(ABC):
             self.result.errors.append(f"Runtime: {e}")
             logger.error("attack_runtime_error", attack_id=self.attack_id, error=str(e), exc_info=True)
         finally:
-            self.result.stopped_at = datetime.utcnow()
+            self.result.stopped_at = datetime.now(timezone.utc)
             if self._start_time:
                 self.result.metrics["duration_seconds"] = time.monotonic() - self._start_time
             await self._cleanup()

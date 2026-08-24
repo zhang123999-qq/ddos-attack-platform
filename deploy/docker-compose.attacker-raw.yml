@@ -22,6 +22,7 @@ services:
       - NODE_KEY=/certs/node-key.pem
       - NODE_TOKEN=${NODE_TOKEN:-}
       - SHARED_SECRET=${SHARED_SECRET:?SHARED_SECRET is required}
+      - REQUIRE_SHARED_SECRET=true
       - ATTACK_TYPES=${ATTACK_TYPES:-syn_flood,udp_flood,udp_reflection}
       - MAX_PPS=${MAX_PPS:-50000}
       - MAX_CONCURRENT=${MAX_CONCURRENT:-1000}
@@ -41,7 +42,7 @@ services:
         max-size: "50m"
         max-file: "5"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3

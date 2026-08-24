@@ -16,6 +16,7 @@ services:
       - CONTROLLER_PORT=8443
       - CONTROLLER_HOST=0.0.0.0
       - SHARED_SECRET=${SHARED_SECRET:?SHARED_SECRET is required}
+      - REQUIRE_SHARED_SECRET=true
       - TLS_CERT_FILE=/certs/controller-cert.pem
       - TLS_KEY_FILE=/certs/controller-key.pem
       - TLS_CA_FILE=/certs/ca-cert.pem
@@ -40,7 +41,7 @@ services:
         max-size: "100m"
         max-file: "10"
     healthcheck:
-      test: ["CMD", "curl", "-kf", "https://localhost:8443/health"]
+      test: ["CMD", "python", "-c", "import ssl,urllib.request as u; c=ssl.create_default_context(); c.check_hostname=False; c.verify_mode=ssl.CERT_NONE; u.urlopen('https://localhost:8443/health', context=c, timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3

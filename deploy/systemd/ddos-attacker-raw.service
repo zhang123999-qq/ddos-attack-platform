@@ -6,25 +6,31 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-Group=root
+# H-3 修复: 不再以 root 运行 — 专用非特权用户 + 仅授予 RAW 所需能力,
+# NoNewPrivileges=yes 阻断任何提权路径。
+User=ddos-attacker
+Group=ddos-attacker
 WorkingDirectory=/opt/ddos-attack-platform/attacker
 ExecStart=/opt/ddos-attack-platform/attacker/ddos-attacker
 ExecStop=/bin/kill -SIGTERM $MAINPID
 Restart=always
 RestartSec=15
 
-# RAW socket 权限
+# RAW socket 权限 (仅此两项, 其余能力全部剥离)
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 
-# 安全加固 (比 HTTP 节点宽松)
-NoNewPrivileges=no
+# 安全加固
+NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/opt/ddos-attack-platform/attacker
 ReadOnlyPaths=/etc/ssl/certs
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_PACKET
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
 
 # 环境变量
 EnvironmentFile=-/opt/ddos-attack-platform/attacker/config.env

@@ -425,7 +425,7 @@
             
             if (active) {
                 banner.classList.add('active');
-                status.innerHTML = `已触发: ${reason} (由 ${by} 发起)`;
+                status.innerHTML = `已触发: ${esc(reason)} (由 ${esc(by)} 发起)`;
                 dot.className = 'status-dot emergency';
                 text.textContent = '熔断中';
             } else {
@@ -544,64 +544,81 @@
             const tbody = document.getElementById('nodesTable');
             tbody.innerHTML = Object.values(nodes).map(n => `
                 <tr>
-                    <td>${n.node_id}</td>
-                    <td>${n.node_type}</td>
-                    <td>${n.ip}</td>
-                    <td><span class="badge badge-${n.status}">${n.status}</span></td>
-                    <td>${n.supported_attacks.join(', ')}</td>
+                    <td>${esc(n.node_id)}</td>
+                    <td>${esc(n.node_type)}</td>
+                    <td>${esc(n.ip)}</td>
+                    <td><span class="badge badge-${esc(n.status)}">${esc(n.status)}</span></td>
+                    <td>${esc((n.supported_attacks || []).join(', '))}</td>
                     <td>${n.cpu_cores}C / ${n.memory_gb}GB</td>
                     <td>${n.last_heartbeat ? new Date(n.last_heartbeat).toLocaleTimeString() : 'N/A'}</td>
                 </tr>
             `).join('');
-            
+
             updateDashboardStats();
+        }
+
+        // H-5 修复: 所有插值进 innerHTML 的动态字符串必须经 HTML 转义
+        function esc(s) {
+            if (s === null || s === undefined) return '';
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
         }
 
         function renderAttacks() {
             const tbody = document.getElementById('activeAttacksTable');
             const recentTbody = document.getElementById('recentAttacks');
-            
+
             const attackEntries = Object.entries(attacks);
-            
+
             // 所有攻击
             tbody.innerHTML = attackEntries.map(([id, a]) => {
                 const totalReq = Object.values(a.results || {}).reduce((sum, r) => sum + r.total_requests, 0);
                 const totalSucc = Object.values(a.results || {}).reduce((sum, r) => sum + r.successful_requests, 0);
                 const totalFail = Object.values(a.results || {}).reduce((sum, r) => sum + r.failed_requests, 0);
                 const nodeCount = Object.keys(a.results || {}).length;
-                
+
+                // 进度起点: 优先 WS attack_start 附带的 started_at, 回退本条记录时间戳
+                const startedAt = a.started_at || a.timestamp || null;
+                const duration = a.command?.params?.duration || (a.results && a.command ? null : null);
+                let progress = 0;
+                if (startedAt && a.command?.params?.duration) {
+                    progress = Math.min(100, Math.max(0,
+                        Math.round((Date.now() - new Date(startedAt).getTime()) / 1000 / a.command.params.duration * 100)));
+                }
+
                 return `
                     <tr>
-                        <td>${id}</td>
-                        <td>${a.command?.attack_type || a.attack_type}</td>
-                        <td>${a.command?.params?.target?.ip || 'N/A'}</td>
-                        <td><span class="badge badge-${a.status}">${a.status}</span></td>
-                        <td>${a.command?.params?.duration ? Math.min(100, Math.round((Date.now() - new Date(a.command?.started_at || Date.now()).getTime()) / 1000 / a.command.params.duration * 100)) : 0}%</td>
+                        <td>${esc(id)}</td>
+                        <td>${esc(a.command?.attack_type || a.attack_type)}</td>
+                        <td>${esc(a.command?.params?.target?.ip) || 'N/A'}</td>
+                        <td><span class="badge badge-${esc(a.status)}">${esc(a.status)}</span></td>
+                        <td>${progress}%</td>
                         <td>${totalReq} / ${totalSucc} / ${totalFail}</td>
                         <td>
-                            ${(a.status === 'running' || a.status === 'starting') ? 
-                                `<button class="btn btn-danger" onclick="stopAttack('${id}')" style="padding:0.25rem 0.5rem;font-size:0.75rem;">停止</button>` : 
+                            ${(a.status === 'running' || a.status === 'starting') ?
+                                `<button class="btn btn-danger" onclick="stopAttack('${encodeURIComponent(id)}')" style="padding:0.25rem 0.5rem;font-size:0.75rem;">停止</button>` :
                                 ''}
                         </td>
                     </tr>
                 `;
             }).join('');
-            
+
             // 最近 5 个
             recentTbody.innerHTML = attackEntries
                 .sort((a, b) => new Date(b[1].command?.created_at || 0) - new Date(a[1].command?.created_at || 0))
                 .slice(0, 5)
                 .map(([id, a]) => `
                     <tr>
-                        <td>${id}</td>
-                        <td>${a.command?.attack_type || a.attack_type}</td>
-                        <td>${a.command?.params?.target?.ip || 'N/A'}</td>
-                        <td><span class="badge badge-${a.status}">${a.status}</span></td>
+                        <td>${esc(id)}</td>
+                        <td>${esc(a.command?.attack_type || a.attack_type)}</td>
+                        <td>${esc(a.command?.params?.target?.ip) || 'N/A'}</td>
+                        <td><span class="badge badge-${esc(a.status)}">${esc(a.status)}</span></td>
                         <td>${Object.keys(a.results || {}).length}</td>
                         <td>${a.command?.created_at ? new Date(a.command.created_at).toLocaleTimeString() : 'N/A'}</td>
                     </tr>
                 `).join('');
-            
+
             updateDashboardStats();
         }
 
@@ -611,13 +628,13 @@
                 <div class="scenario-card">
                     <div class="scenario-header">
                         <div>
-                            <strong>${s.name}</strong> <span style="color:#888;font-size:0.875rem;">(${s.scenario_id})</span>
+                            <strong>${esc(s.name)}</strong> <span style="color:#888;font-size:0.875rem;">(${esc(s.scenario_id)})</span>
                         </div>
-                        <button class="btn btn-primary" onclick="runScenario('${s.scenario_id}')" style="padding:0.25rem 0.75rem;font-size:0.875rem;">运行</button>
+                        <button class="btn btn-primary" onclick="runScenario('${encodeURIComponent(s.scenario_id)}')" style="padding:0.25rem 0.75rem;font-size:0.875rem;">运行</button>
                     </div>
-                    <p style="color:#666;font-size:0.875rem;margin-bottom:0.5rem;">${s.description}</p>
+                    <p style="color:#666;font-size:0.875rem;margin-bottom:0.5rem;">${esc(s.description)}</p>
                     <div class="scenario-tags">
-                        ${s.tags?.map(t => `<span class="tag">${t}</span>`).join('') || ''}
+                        ${(s.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
                     </div>
                     <div style="margin-top:0.5rem;font-size:0.8rem;color:#888;">
                         步骤: ${s.steps?.length || 0} | 创建: ${s.created_at ? new Date(s.created_at).toLocaleDateString() : 'N/A'}
@@ -628,12 +645,17 @@
 
         async function runScenario(scenarioId) {
             if (!confirm(`确定运行场景 ${scenarioId}?`)) return;
+            // 场景 YAML 使用 TARGET_IP_PLACEHOLDER 模板, 服务端强制要求 overrides 提供真实目标
+            const targetIp = prompt(`运行场景 ${scenarioId}\n请输入目标 IP (必须在白名单网段内):`);
+            if (!targetIp) return;
             try {
-                const res = await apiPost(`/scenarios/${scenarioId}/run`, {});
+                const res = await apiPost(`/scenarios/${scenarioId}/run`, {
+                    overrides: { target: { ip: targetIp.trim() } }
+                });
                 if (res.success) {
                     alert(`场景已启动: ${res.data.run_id}`);
                 } else {
-                    alert(`启动失败: ${res.error}`);
+                    alert(`启动失败: ${res.error || res.detail || '未知错误'}`);
                 }
             } catch (err) {
                 alert(`请求错误: ${err.message}`);
@@ -646,9 +668,10 @@
             document.getElementById('rlGlobalConn').textContent = `${rateLimits.used_concurrent || 0} / ${rateLimits.global_concurrent || 100000}`;
             
             const tbody = document.getElementById('nodeQuotasTable');
-            tbody.innerHTML = Object.entries(rateLimits.node_quotas || {}).map(([nodeId, q]) => `
+            // 后端配额已改为 (attack_id, node_id) 数组结构 [{attack_id, node_id, rps, pps, concurrent}]
+            tbody.innerHTML = (rateLimits.quotas || []).map(q => `
                 <tr>
-                    <td>${nodeId}</td>
+                    <td>${esc(q.node_id)}<br><small style="color:#999;">${esc(q.attack_id)}</small></td>
                     <td>${q.rps || 0}</td>
                     <td>${q.pps || 0}</td>
                     <td>${q.concurrent || 0}</td>
@@ -662,7 +685,8 @@
             const container = document.getElementById('auditLog');
             const div = document.createElement('div');
             div.className = 'log-entry' + (entry.success === false ? ' error' : '');
-            div.innerHTML = `[${new Date(entry.timestamp).toLocaleTimeString()}] ${entry.event_type} | actor=${entry.actor} | ${entry.attack_id ? 'attack=' + entry.attack_id : ''} | ${entry.node_id ? 'node=' + entry.node_id : ''} | ${JSON.stringify(entry.details)}`;
+            const details = esc(JSON.stringify(entry.details));
+            div.innerHTML = `[${new Date(entry.timestamp).toLocaleTimeString()}] ${esc(entry.event_type)} | actor=${esc(entry.actor)} | ${entry.attack_id ? 'attack=' + esc(entry.attack_id) : ''} | ${entry.node_id ? 'node=' + esc(entry.node_id) : ''} | ${details}`;
             container.insertBefore(div, container.firstChild);
             // 限制 100 条
             while (container.children.length > 100) container.removeChild(container.lastChild);

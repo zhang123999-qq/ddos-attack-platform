@@ -24,6 +24,7 @@ class HealthMonitor:
         self._current_attacks: List[str] = []
         self._last_net_io = psutil.net_io_counters()
         self._last_time = time.time()
+        psutil.cpu_percent(interval=None)  # 预热: 首次调用建立基线, 返回值弃用
 
     def get_node_info(self) -> NodeInfo:
         cpu_cores = psutil.cpu_count(logical=True) or 1
@@ -67,8 +68,8 @@ class HealthMonitor:
         return supported
 
     async def collect_heartbeat(self) -> NodeHeartbeat:
-        """异步心跳采集"""
-        cpu_percent = psutil.cpu_percent(interval=0.1)
+        """异步心跳采集 — P2: interval=None 非阻塞 (自上次调用以来的均值), 不再卡 100ms 事件循环"""
+        cpu_percent = psutil.cpu_percent(interval=None)
         mem = psutil.virtual_memory()
         memory_percent = mem.percent
 
@@ -124,7 +125,7 @@ class HealthMonitor:
 
     def get_prometheus_metrics(self) -> str:
         """CRIT-2 修复: 完全同步的 Prometheus 指标导出 (不再使用 asyncio.run)"""
-        cpu = psutil.cpu_percent()
+        cpu = psutil.cpu_percent(interval=None)
         mem = psutil.virtual_memory().percent
         net_mbps = self._snapshot_network_mbps()
         connections = 0

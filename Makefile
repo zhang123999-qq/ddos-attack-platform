@@ -7,6 +7,8 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 REGISTRY ?= ghcr.io/your-org
 CONTROLLER_IP ?= 10.100.1.10
+DAYS_VALID_CA ?= 730
+DAYS_VALID_NODE ?= 365
 SHARED_SECRET ?= $(shell openssl rand -hex 32 2>/dev/null || echo "changeme32charslongsecret")
 
 all: certs docker-build
@@ -33,6 +35,8 @@ certs:
 	@echo "=== Generating mTLS certificates ==="
 	cd deploy && \
 	CONTROLLER_IP=$(CONTROLLER_IP) \
+	DAYS_VALID_CA=$(DAYS_VALID_CA) \
+	DAYS_VALID_NODE=$(DAYS_VALID_NODE) \
 	NODE_IPS="10.100.1.20 10.100.1.21" \
 	NODE_HOSTNAMES="attacker-http-01 attacker-raw-01" \
 	./generate_certs.sh

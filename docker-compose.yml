@@ -16,6 +16,7 @@ services:
       - CONTROLLER_PORT=8443
       - CONTROLLER_HOST=0.0.0.0
       - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - REQUIRE_SHARED_SECRET=true
       - TLS_CERT_FILE=/certs/controller-cert.pem
       - TLS_KEY_FILE=/certs/controller-key.pem
       - TLS_CA_FILE=/certs/ca-cert.pem
@@ -38,7 +39,8 @@ services:
     networks:
       - ddos-lab
     healthcheck:
-      test: ["CMD", "curl", "-k", "-f", "https://localhost:8443/health"]
+      # python 实现 (镜像未装 curl; -k 语义 = 跳过自签证书校验)
+      test: ["CMD", "python", "-c", "import ssl,urllib.request as u; c=ssl.create_default_context(); c.check_hostname=False; c.verify_mode=ssl.CERT_NONE; u.urlopen('https://localhost:8443/health', context=c, timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -61,6 +63,7 @@ services:
       - NODE_KEY=/certs/node-key.pem
       - NODE_TOKEN=
       - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - REQUIRE_SHARED_SECRET=true
       - ATTACK_TYPES=http_flood,slowloris
       - MAX_RPS=10000
       - MAX_CONCURRENT=5000
@@ -79,7 +82,7 @@ services:
       controller:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -109,6 +112,7 @@ services:
       - NODE_KEY=/certs/node-key.pem
       - NODE_TOKEN=
       - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - REQUIRE_SHARED_SECRET=true
       - ATTACK_TYPES=syn_flood,udp_flood,udp_reflection
       - MAX_PPS=50000
       - MAX_CONCURRENT=1000
@@ -128,7 +132,7 @@ services:
       controller:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -145,6 +149,7 @@ services:
       - ddos-lab
     volumes:
       - ./target/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./target/generate-test-files.sh:/docker-entrypoint.d/90-generate-test-files.sh:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
       interval: 10s
@@ -174,8 +179,9 @@ services:
     container_name: ddos-grafana
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      # S-6 修复: 弱默认口令不再硬编码, 部署时通过环境变量注入
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env or environment}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./monitor/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro

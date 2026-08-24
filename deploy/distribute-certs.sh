@@ -45,11 +45,15 @@ fi
 log_step "=== Distributing certificates and configs ==="
 
 # ========== 解析集群拓扑 ==========
-eval "$(python3 -c "
-import yaml, json
+# C-2 修复: shlex.quote 保证 eval 只收到字面量赋值, 拓扑文件不再构成注入面
+eval "$(CONFIG_FILE="$CONFIG_FILE" python3 -c "
+import yaml, shlex, os
 
-with open('$CONFIG_FILE') as f:
+with open(os.environ['CONFIG_FILE']) as f:
     cfg = yaml.safe_load(f)
+
+def emit(key, value):
+    print(f'{key}={shlex.quote(str(value))}')
 
 entries = []
 
@@ -76,11 +80,11 @@ for atk in cfg.get('attackers', []):
         'install_dir': atk.get('install_dir', '/opt/ddos-attack-platform/attacker'),
     })
 
-print(f'ENTRIES_COUNT={len(entries)}')
+emit('ENTRIES_COUNT', len(entries))
 for i, e in enumerate(entries):
     for k, v in e.items():
-        print(f'ENTRY_{i}_{k.upper()}={v}')
-" 2>&1)"
+        emit(f'ENTRY_{i}_{k.upper()}', v)
+")"
 
 # ========== 分发到每个节点 ==========
 SUCCESS=0
@@ -96,7 +100,7 @@ for ((i=0; i<ENTRIES_COUNT; i++)); do
     eval "NODE_ID=\${ENTRY_${i}_NODE_ID:-controller}"
 
     SSH_TARGET="${SSH_USER}@${HOST}"
-    SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -p ${SSH_PORT}"
+    SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -p ${SSH_PORT}"
 
     log_step "Distributing to $NODE_ID ($ROLE) at $HOST (deploy=$DEPLOY_METHOD)"
 

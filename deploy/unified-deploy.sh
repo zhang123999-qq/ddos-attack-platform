@@ -52,41 +52,44 @@ EOF
 }
 
 # ========== YAML 解析辅助 ==========
+# C-2 修复: 所有值经 shlex.quote 输出, eval 只会得到安全的字面量赋值,
+# YAML 内容中的 $( ) ` 等元字符不再构成注入面。
 parse_yaml() {
-    python3 -c "
-import yaml, json, sys
-with open('$CONFIG_FILE') as f:
+    CONFIG_FILE="$CONFIG_FILE" python3 -c "
+import yaml, shlex, os
+with open(os.environ['CONFIG_FILE']) as f:
     cfg = yaml.safe_load(f)
-# 输出 shell 变量
+def emit(key, value):
+    print(f'{key}={shlex.quote(str(value))}')
 g = cfg['global']
 secret = g['shared_secret']
 if secret == 'auto':
     import secrets
     secret = secrets.token_hex(32)
-print(f'SHARED_SECRET={secret}')
-print(f'ALLOWED_TARGET_CIDRS={",".join(g[\"allowed_target_cidrs\"])}')
-print(f'GLOBAL_MAX_RPS={g[\"global_max_rps\"]}')
-print(f'GLOBAL_MAX_PPS={g[\"global_max_pps\"]}')
-print(f'GLOBAL_MAX_CONCURRENT={g[\"global_max_concurrent\"]}')
+emit('SHARED_SECRET', secret)
+emit('ALLOWED_TARGET_CIDRS', ','.join(g['allowed_target_cidrs']))
+emit('GLOBAL_MAX_RPS', g['global_max_rps'])
+emit('GLOBAL_MAX_PPS', g['global_max_pps'])
+emit('GLOBAL_MAX_CONCURRENT', g['global_max_concurrent'])
 
 ctrl = cfg['controller']
-print(f'CTRL_HOST={ctrl[\"host\"]}')
-print(f'CTRL_PORT={ctrl[\"port\"]}')
-print(f'CTRL_DEPLOY={ctrl[\"deploy_method\"]}')
-print(f'CTRL_SSH_USER={ctrl.get(\"ssh\",{}).get(\"user\",\"root\")}')
-print(f'CTRL_SSH_PORT={ctrl.get(\"ssh\",{}).get(\"port\",22)}')
-print(f'CTRL_INSTALL_DIR={ctrl.get(\"install_dir\",\"/opt/ddos-attack-platform/controller\")}')
-print(f'CONTROLLER_URL=https://{ctrl[\"host\"]}:{ctrl[\"port\"]}')
+emit('CTRL_HOST', ctrl['host'])
+emit('CTRL_PORT', ctrl['port'])
+emit('CTRL_DEPLOY', ctrl['deploy_method'])
+emit('CTRL_SSH_USER', ctrl.get('ssh',{}).get('user','root'))
+emit('CTRL_SSH_PORT', ctrl.get('ssh',{}).get('port',22))
+emit('CTRL_INSTALL_DIR', ctrl.get('install_dir','/opt/ddos-attack-platform/controller'))
+emit('CONTROLLER_URL', f\"https://{ctrl['host']}:{ctrl['port']}\")
 
-print(f'ATTACKER_COUNT={len(cfg.get(\"attackers\",[]))}')
+emit('ATTACKER_COUNT', len(cfg.get('attackers',[])))
 for i, atk in enumerate(cfg.get('attackers', [])):
-    print(f'ATK_{i}_ID={atk[\"node_id\"]}')
-    print(f'ATK_{i}_HOST={atk[\"host\"]}')
-    print(f'ATK_{i}_DEPLOY={atk[\"deploy_method\"]}')
-    print(f'ATK_{i}_TYPE={atk[\"type\"]}')
-    print(f'ATK_{i}_SSH_USER={atk.get(\"ssh\",{}).get(\"user\",\"root\")}')
-    print(f'ATK_{i}_SSH_PORT={atk.get(\"ssh\",{}).get(\"port\",22)}')
-    print(f'ATK_{i}_INSTALL_DIR={atk.get(\"install_dir\",\"/opt/ddos-attack-platform/attacker\")}')
+    emit(f'ATK_{i}_ID', atk['node_id'])
+    emit(f'ATK_{i}_HOST', atk['host'])
+    emit(f'ATK_{i}_DEPLOY', atk['deploy_method'])
+    emit(f'ATK_{i}_TYPE', atk['type'])
+    emit(f'ATK_{i}_SSH_USER', atk.get('ssh',{}).get('user','root'))
+    emit(f'ATK_{i}_SSH_PORT', atk.get('ssh',{}).get('port',22))
+    emit(f'ATK_{i}_INSTALL_DIR', atk.get('install_dir','/opt/ddos-attack-platform/attacker'))
 " 2>/dev/null
 }
 
@@ -96,7 +99,7 @@ ssh_prefix() {
     if [[ "$host" == "localhost" || "$host" == "127.0.0.1" ]]; then
         echo ""
     else
-        echo "ssh -o StrictHostKeyChecking=no -p $port $user@$host"
+        echo "ssh -o StrictHostKeyChecking=accept-new -p $port $user@$host"
     fi
 }
 
@@ -106,7 +109,7 @@ run_cmd() {
     if [[ "$host" == "localhost" || "$host" == "127.0.0.1" ]]; then
         bash -c "$cmd"
     else
-        ssh -o StrictHostKeyChecking=no -p "$port" "$user@$host" "$cmd"
+        ssh -o StrictHostKeyChecking=accept-new -p "$port" "$user@$host" "$cmd"
     fi
 }
 

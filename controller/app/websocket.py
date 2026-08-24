@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Dict, Set, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import WebSocket, WebSocketDisconnect, Query, Depends
 import structlog
 
@@ -27,7 +27,7 @@ class ConnectionManager:
         async with self._lock:
             self._client_info[websocket] = {
                 "client_id": client_id,
-                "connected_at": datetime.utcnow(),
+                "connected_at": datetime.now(timezone.utc),
                 "channels": set(channels)
             }
             for ch in channels:
@@ -64,16 +64,18 @@ class ConnectionManager:
         """向频道广播消息"""
         if channel not in self._channels:
             return
-        
+
         dead = set()
         data = json.dumps(message, default=str)
-        
-        for ws in self._channels[channel]:
+
+        # P2 修复: 迭代快照副本 — await 期间并发断连会修改原集合,
+        # 直接迭代将触发 "Set changed size during iteration"
+        for ws in list(self._channels[channel]):
             try:
                 await ws.send_text(data)
             except Exception:
                 dead.add(ws)
-        
+
         # 清理断开的连接
         if dead:
             async with self._lock:
@@ -132,7 +134,7 @@ async def websocket_endpoint(
                 elif msg.get("type") == "unsubscribe":
                     await manager.unsubscribe(websocket, msg.get("channels", []))
                 elif msg.get("type") == "ping":
-                    await manager.send_personal(websocket, {"type": "pong", "ts": datetime.utcnow().isoformat()})
+                    await manager.send_personal(websocket, {"type": "pong", "ts": datetime.now(timezone.utc).isoformat()})
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
@@ -148,7 +150,7 @@ async def websocket_endpoint(
 async def broadcast_node_update(node_data: dict):
     await manager.broadcast(Channels.NODES, {
         "type": "node_update",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": node_data
     })
 
@@ -156,15 +158,15 @@ async def broadcast_node_update(node_data: dict):
 async def broadcast_node_heartbeat(heartbeat: NodeHeartbeat):
     await manager.broadcast(Channels.METRICS, {
         "type": "node_heartbeat",
-        "timestamp": datetime.utcnow().isoformat(),
-        "data": heartbeat.model_dump()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": heartbeat.model_dump(mode='json')
     })
 
 
 async def broadcast_attack_start(attack_data: dict):
     await manager.broadcast(Channels.ATTACKS, {
         "type": "attack_start",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": attack_data
     })
 
@@ -172,11 +174,11 @@ async def broadcast_attack_start(attack_data: dict):
 async def broadcast_attack_update(attack_id: str, node_id: str, result: AttackResult):
     await manager.broadcast(Channels.ATTACKS, {
         "type": "attack_update",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": {
             "attack_id": attack_id,
             "node_id": node_id,
-            "result": result.model_dump()
+            "result": result.model_dump(mode='json')
         }
     })
 
@@ -184,7 +186,7 @@ async def broadcast_attack_update(attack_id: str, node_id: str, result: AttackRe
 async def broadcast_attack_stop(attack_id: str, reason: str):
     await manager.broadcast(Channels.ATTACKS, {
         "type": "attack_stop",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": {"attack_id": attack_id, "reason": reason}
     })
 
@@ -192,13 +194,13 @@ async def broadcast_attack_stop(attack_id: str, reason: str):
 async def broadcast_emergency_stop(reason: str, issued_by: str):
     await manager.broadcast(Channels.ALERTS, {
         "type": "emergency_stop",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "level": "critical",
         "data": {"reason": reason, "issued_by": issued_by}
     })
     await manager.broadcast(Channels.SYSTEM, {
         "type": "emergency_stop",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": {"reason": reason, "issued_by": issued_by}
     })
 
@@ -206,7 +208,7 @@ async def broadcast_emergency_stop(reason: str, issued_by: str):
 async def broadcast_rate_limit_status(status: dict):
     await manager.broadcast(Channels.METRICS, {
         "type": "rate_limit_status",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": status
     })
 
@@ -214,7 +216,7 @@ async def broadcast_rate_limit_status(status: dict):
 async def broadcast_audit_event(event: dict):
     await manager.broadcast(Channels.AUDIT, {
         "type": "audit_event",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": event
     })
 
@@ -222,6 +224,6 @@ async def broadcast_audit_event(event: dict):
 async def broadcast_system_event(event_type: str, data: dict):
     await manager.broadcast(Channels.SYSTEM, {
         "type": event_type,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": data
     })

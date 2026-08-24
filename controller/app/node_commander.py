@@ -118,6 +118,30 @@ class NodeCommander:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         return sum(1 for r in results if r is True)
 
+    async def send_emergency_reset(self, node_id: str) -> bool:
+        """向指定节点下发熔断复位"""
+        base_url = self._nodes.get(node_id)
+        if not base_url:
+            return False
+        headers = auth_config.generate_controller_auth_headers(node_id)
+        try:
+            resp = await self._client.post(
+                f"{base_url}/api/v1/emergency_stop/reset",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            logger.info("emergency_reset_sent", node_id=node_id)
+            return True
+        except httpx.HTTPError as e:
+            logger.error("emergency_reset_send_failed", node_id=node_id, error=str(e))
+            return False
+
+    async def broadcast_emergency_reset(self) -> int:
+        """向所有已知节点广播熔断复位 (P1-1: 原先只有 Controller 本地复位, 节点永久锁死)"""
+        tasks = [self.send_emergency_reset(node_id) for node_id in list(self._nodes.keys())]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return sum(1 for r in results if r is True)
+
     def has_node(self, node_id: str) -> bool:
         return node_id in self._nodes
 

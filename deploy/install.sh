@@ -89,8 +89,8 @@ if [[ -z "$TARGET_HOST" || "$TARGET_HOST" == "localhost" || "$TARGET_HOST" == "1
     SSH_CMD=""
     SCP_CMD="cp -r"
 else
-    SSH_CMD="ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TARGET_HOST}"
-    SCP_CMD="scp -o StrictHostKeyChecking=no -r"
+    SSH_CMD="ssh -o StrictHostKeyChecking=accept-new ${SSH_USER}@${TARGET_HOST}"
+    SCP_CMD="scp -o StrictHostKeyChecking=accept-new -r"
 fi
 
 # 根据角色设置路径和文件
@@ -148,7 +148,7 @@ rsync -avz --delete \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
     --exclude '.pytest_cache' \
-    -e "ssh -o StrictHostKeyChecking=no" \
+    -e "ssh -o StrictHostKeyChecking=accept-new" \
     "$SOURCE_DIR/" "${SSH_USER}@${TARGET_HOST}:${PROJECT_DIR}/"
 
 # 远程执行部署

@@ -19,12 +19,18 @@ security = HTTPBearer(auto_error=False)
 
 
 class AuthConfig:
+    # C-4 修复: 弱密钥黑名单前缀
+    INSECURE_PREFIXES = ("changeme", "insecure-default")
+
     def __init__(self):
         self.shared_secret = os.getenv("SHARED_SECRET", "").encode()
         self.ca_cert_path = os.getenv("TLS_CA_FILE", "/certs/ca-cert.pem")
         self.cert_path = os.getenv("TLS_CERT_FILE", "/certs/controller-cert.pem")
         self.key_path = os.getenv("TLS_KEY_FILE", "/certs/controller-key.pem")
-        self.verify_client = True
+        # 是否强制双向认证 (客户端证书)。
+        # 默认 false: 仅服务端 TLS, 浏览器可直接访问 Web UI/REST;
+        # 置 true 后节点必须出示 CA 签发的证书 (严格 mTLS), 但浏览器将被拒绝。
+        self.verify_client = os.getenv("TLS_VERIFY_CLIENT", "false").lower() == "true"
 
         if not self.shared_secret:
             logger.warning("SHARED_SECRET not set, using insecure default")
@@ -33,6 +39,20 @@ class AuthConfig:
         # 启动时校验密钥长度
         if len(self.shared_secret) < 32:
             logger.warning("SHARED_SECRET too short, minimum 32 bytes recommended")
+
+        # C-4 加固: REQUIRE_SHARED_SECRET=true 时拒绝弱/默认密钥 (生产部署镜像默认开启)
+        raw = os.getenv("SHARED_SECRET", "")
+        require = os.getenv("REQUIRE_SHARED_SECRET", "false").lower() == "true"
+        if require and (
+            not raw
+            or len(raw) < 32
+            or any(raw.startswith(p) for p in self.INSECURE_PREFIXES)
+        ):
+            logger.error(
+                "weak_shared_secret_rejected",
+                hint="set SHARED_SECRET to >=32 random chars (openssl rand -hex 32)",
+            )
+            raise SystemExit(1)
 
     def create_ssl_context(self, purpose: ssl.Purpose = ssl.Purpose.CLIENT_AUTH) -> ssl.SSLContext:
         """创建 mTLS SSL 上下文"""

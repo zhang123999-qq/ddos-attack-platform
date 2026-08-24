@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, ClassVar, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
-from datetime import datetime
+from datetime import datetime, timezone
 import ipaddress
+import re
 
 
 class AttackType(str, Enum):
@@ -40,9 +41,14 @@ class TargetSpec(BaseModel):
     path: str = "/"
     host_header: Optional[str] = None
 
+    # 场景模板占位符 (如 TARGET_IP_PLACEHOLDER) — 加载期合法, 执行前必须被 overrides 覆盖
+    PLACEHOLDER_RE: ClassVar[re.Pattern] = re.compile(r"^[A-Z][A-Z0-9_]*_PLACEHOLDER$")
+
     @field_validator('ip')
     @classmethod
     def validate_ip(cls, v: str) -> str:
+        if cls.PLACEHOLDER_RE.match(v):
+            return v
         try:
             ipaddress.ip_address(v)
         except ValueError:
@@ -51,6 +57,9 @@ class TargetSpec(BaseModel):
             except ValueError:
                 raise ValueError(f"Invalid IP or CIDR: {v}")
         return v
+
+    def is_placeholder(self) -> bool:
+        return bool(self.PLACEHOLDER_RE.match(self.ip))
 
 
 class AttackParams(BaseModel):
@@ -76,7 +85,7 @@ class AttackParams(BaseModel):
     slowloris_interval: int = Field(default=15, ge=5, le=60)
     
     # UDP Reflection 特有
-    reflector_type: Optional[Literal["ntp", "dns", "memcached", "ssdp"]] = None
+    reflector_type: Optional[Literal["ntp", "dns", "memcached", "ssdp", "snmp"]] = None
     reflector_list: Optional[List[str]] = None
 
     model_config = {"use_enum_values": True}
@@ -89,7 +98,7 @@ class AttackCommand(BaseModel):
     scenario_id: Optional[str] = None
     node_ids: List[str] = Field(default_factory=list)  # 空 = 所有匹配类型的节点
     priority: int = Field(default=0, ge=0, le=100)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AttackResult(BaseModel):
@@ -121,13 +130,13 @@ class NodeInfo(BaseModel):
     max_concurrent: int = 5000
     status: NodeStatus = NodeStatus.REGISTERING
     last_heartbeat: Optional[datetime] = None
-    registered_at: datetime = Field(default_factory=datetime.utcnow)
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     labels: Dict[str, str] = Field(default_factory=dict)
 
 
 class NodeHeartbeat(BaseModel):
     node_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     cpu_percent: float
     memory_percent: float
     network_mbps: float
@@ -149,13 +158,13 @@ class Scenario(BaseModel):
     description: str
     steps: List[ScenarioStep] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EmergencyStopCommand(BaseModel):
     reason: str
     issued_by: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     target_node_ids: List[str] = Field(default_factory=list)  # 空 = 全网
 
 
@@ -166,7 +175,7 @@ class AuditEvent(BaseModel):
         "emergency_stop", "node_register", "node_heartbeat", "node_disconnect",
         "config_change", "auth_failure", "target_validation_failure"
     ]
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     actor: str  # user/node/system
     node_id: Optional[str] = None
     attack_id: Optional[str] = None

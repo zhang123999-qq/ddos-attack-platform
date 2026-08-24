@@ -5,9 +5,15 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# C-5 加固: 全局最小权限
+permissions:
+  contents: read
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         binary: [controller, attacker]
@@ -29,6 +35,7 @@ jobs:
             --workpath=../dist/_build_${{ matrix.binary }} \
             --onefile \
             --name=ddos-${{ matrix.binary }} \
+            --noconfirm \
             ${{ matrix.binary }}.spec
 
       - name: Package with systemd units
