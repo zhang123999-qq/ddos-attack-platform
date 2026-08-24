@@ -23,19 +23,29 @@ class AuditLogger:
     """结构化审计日志 - JSONL 格式，支持文件轮转 + ELK 转发"""
 
     def __init__(self):
-        # 默认系统路径; 无权限时优雅降级到用户态目录, 绝不在 import 期崩溃
-        # (Docker 非 root / 手动运行 / WSL 等场景下 /var/log 不可写)
-        self.log_path = Path(os.getenv("AUDIT_LOG_PATH", "/var/log/ddos-audit/audit.jsonl"))
-        try:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            probe = self.log_path.parent / ".write_test"
-            probe.touch(); probe.unlink()
-        except (PermissionError, OSError):
-            fallback = Path.home() / ".local" / "state" / "ddos-audit" / "audit.jsonl"
-            fallback.parent.mkdir(parents=True, exist_ok=True)
+        # 降级链: AUDIT_LOG_PATH|/var/log → cwd → ~/.local/state → tmpdir
+        # 覆盖: Docker 非 root(cwd=/app 可写) / systemd ProtectSystem=strict
+        # (ReadWritePaths 放行 INSTALL_DIR, cwd 兜底) / 普通用户手动运行。
+        # 绝不在 import 期崩溃。
+        candidates = [
+            Path(os.getenv("AUDIT_LOG_PATH", "/var/log/ddos-audit/audit.jsonl")),
+            Path.cwd() / "audit.jsonl",
+            Path.home() / ".local" / "state" / "ddos-audit" / "audit.jsonl",
+            Path(__import__("tempfile").gettempdir()) / "ddos-audit.jsonl",
+        ]
+        self.log_path = candidates[0]
+        for cand in candidates:
+            try:
+                cand.parent.mkdir(parents=True, exist_ok=True)
+                probe = cand.parent / ".write_test"
+                probe.touch(); probe.unlink()
+                self.log_path = cand
+                break
+            except (PermissionError, OSError):
+                continue
+        if self.log_path != candidates[0]:
             logging.getLogger("ddos.audit").warning(
-                "audit_log_fallback: %s unwritable, using %s", self.log_path, fallback)
-            self.log_path = fallback
+                "audit_log_fallback: %s unwritable, using %s", candidates[0], self.log_path)
         self.retention_days = int(os.getenv("AUDIT_RETENTION_DAYS", "90"))
 
         self.file_handler = RotatingFileHandler(
