@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, Request, Depends, HTTPException, Query, BackgroundTasks, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates

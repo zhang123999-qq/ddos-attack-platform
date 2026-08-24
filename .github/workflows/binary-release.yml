@@ -29,12 +29,12 @@ jobs:
         run: pip install -r build/requirements-build.txt -r ${{ matrix.binary }}/requirements.txt
 
       - name: Build ${{ matrix.binary }}
+        # onefile/name 布局已定义在 .spec 内 — 传 makespec 选项会报
+        # "option(s) not allowed: --onedir/--onefile --name"
         run: |
           cd build
           pyinstaller --distpath=../dist/${{ matrix.binary }} \
             --workpath=../dist/_build_${{ matrix.binary }} \
-            --onefile \
-            --name=ddos-${{ matrix.binary }} \
             --noconfirm \
             ${{ matrix.binary }}.spec
 

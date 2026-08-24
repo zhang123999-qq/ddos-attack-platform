@@ -1,0 +1,17 @@
+fix(ci): remove makespec options from spec-based builds; import WebSocket
+
+Two GHA failures on v1.2.0 tag, both diagnosed from run logs:
+
+1. binary-release build step passed --onefile/--name alongside the
+   .spec file; PyInstaller rejects makespec options when a spec is
+   given ("option(s) not allowed"). The spec already defines onefile
+   layout and exe name, so drop the redundant CLI flags.
+
+2. docker test gate caught a REAL source bug: main.py annotated the
+   /ws/metrics handler param as websocket: WebSocket but never
+   imported WebSocket. Newer pydantic tolerated it locally; the pinned
+   pydantic==2.5.3 in CI evaluates route annotations strictly and
+   raised PydanticUndefinedAnnotation at import. Import added.
+
+This is the CI gate working as designed: first tagged run blocked two
+broken release paths before any artifact shipped.
