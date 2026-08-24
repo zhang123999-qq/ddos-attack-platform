@@ -85,6 +85,51 @@ class AuthConfig:
         """Controller 下发指令给 Attacker 时使用的 Token"""
         return hmac.new(self.shared_secret, b"ddos-controller-cmd", hashlib.sha256).hexdigest()
 
+    # ========== 一键安装 (Komari 式) : 无状态 enroll token ==========
+
+    ENROLL_DOMAIN = b"ddos-enroll:"
+
+    def _enroll_bucket(self, dt=None, offset_hours: int = 0) -> str:
+        """小时桶: UTC %Y%m%d%H — token 自然过期, 无需服务端存储"""
+        from datetime import datetime, timedelta, timezone
+        dt = dt or datetime.now(timezone.utc)
+        if offset_hours:
+            dt = dt + timedelta(hours=offset_hours)
+        return dt.strftime("%Y%m%d%H")
+
+    def generate_enroll_token(self, node_id: str, bucket: Optional[str] = None) -> str:
+        """为指定节点派生 enroll token (绑定 node_id + 小时桶, 防跨节点挪用)"""
+        bucket = bucket or self._enroll_bucket()
+        msg = self.ENROLL_DOMAIN + f"{node_id}:{bucket}".encode()
+        return hmac.new(self.shared_secret, msg, hashlib.sha256).hexdigest()
+
+    def verify_enroll_token(self, node_id: str, token: str) -> bool:
+        """校验 enroll token: 接受当前小时桶与上一小时桶 (边界平滑, 最长约 2h 有效)"""
+        for bucket in (self._enroll_bucket(), self._enroll_bucket(offset_hours=-1)):
+            expected = self.generate_enroll_token(node_id, bucket)
+            if hmac.compare_digest(token, expected):
+                return True
+        return False
+
+    def get_tls_fingerprint(self) -> str:
+        """控制器证书 SHA-256 指纹 (冒号分隔大写十六进制), 供节点安装器钉扎校验;
+        证书文件不可读时返回空串"""
+        try:
+            import cryptography.x509 as x509
+            from cryptography.hazmat.primitives import serialization
+            data = Path(self.cert_path).read_bytes()
+            cert = x509.load_pem_x509_certificate(data)
+            der = cert.public_bytes(serialization.Encoding.DER)
+            digest = hashlib.sha256(der).hexdigest().upper()
+            return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+        except Exception:
+            # cryptography 缺失或证书不存在 — 降级为对文件原样字节哈希
+            try:
+                digest = hashlib.sha256(Path(self.cert_path).read_bytes()).hexdigest().upper()
+                return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+            except Exception:
+                return ""
+
     def generate_controller_auth_headers(self, target_node_id: str) -> dict:
         """生成 Controller 调用 Attacker API 的认证头"""
         return {

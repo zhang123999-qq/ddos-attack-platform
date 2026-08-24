@@ -173,7 +173,10 @@ class AuditEvent(BaseModel):
     event_type: Literal[
         "attack_start", "attack_stop", "attack_complete", "attack_failed",
         "emergency_stop", "node_register", "node_heartbeat", "node_disconnect",
-        "config_change", "auth_failure", "target_validation_failure"
+        "config_change", "auth_failure", "target_validation_failure",
+        # 一键安装引导 (Komari 式) 新增审计类别
+        "node_enroll_success", "node_enroll_failed",
+        "enroll_command_issued"
     ]
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     actor: str  # user/node/system

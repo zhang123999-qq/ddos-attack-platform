@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Depends, HTTPException, Query, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -19,7 +20,7 @@ from app.auth import verify_controller_token, verify_node_token, auth_config
 from app.models import (
     AttackCommand, AttackParams, AttackType, AttackStatus, AttackResult,
     NodeInfo, NodeHeartbeat, NodeStatus, Scenario, EmergencyStopCommand,
-    TargetSpec, APIResponse, PaginatedResponse
+    TargetSpec, APIResponse, PaginatedResponse, AuditEvent
 )
 from app.orchestrator import Orchestrator
 from app.audit import audit_logger
@@ -33,6 +34,31 @@ from app.websocket import (
 logger = structlog.get_logger(__name__)
 
 orchestrator: Optional[Orchestrator] = None
+
+
+def _find_resource_path(env_key: str, *candidates: str) -> Optional[Path]:
+    """按 环境变量 → 候选路径 顺序定位安装脚本/制品目录 (开发仓与容器布局均兼容)"""
+    env_val = os.getenv(env_key)
+    if env_val and Path(env_val).exists():
+        return Path(env_val)
+    for cand in candidates:
+        p = Path(cand)
+        if p.exists():
+            return p
+    return None
+
+
+# 安装脚本与制品目录路径 (兼容: 本地仓库运行 / 容器内 /app 布局)
+INSTALL_SCRIPT = _find_resource_path(
+    "INSTALL_SCRIPT_PATH",
+    Path(__file__).parent.parent.parent / "deploy" / "node-install.sh",  # 仓库: controller/app/../../deploy
+    "/app/deploy/node-install.sh",
+)
+ARTIFACTS_DIR = _find_resource_path(
+    "ARTIFACTS_DIR",
+    Path(__file__).parent.parent.parent / "artifacts",  # 仓库根 ./artifacts
+    "/app/artifacts",
+)
 
 
 @asynccontextmanager
@@ -323,6 +349,48 @@ async def list_nodes(
     return APIResponse(success=True, data=[n.model_dump(mode='json') for n in nodes])
 
 
+@app.get("/api/v1/nodes/enroll-command", response_model=APIResponse)
+async def enroll_command(
+    request: Request,
+    type: str = Query("http", pattern="^(http|raw)$"),
+    node_id: str = Query(..., min_length=2, max_length=63),
+    auth: str = Depends(verify_controller_token),
+):
+    """管理员生成节点一键安装命令 (WebUI「添加节点」数据源)
+    注意: 静态路由必须先于 /nodes/{node_id} 注册, 否则会被动态段吞掉"""
+    if not NODE_ID_RE.match(node_id):
+        raise HTTPException(status_code=400, detail="node_id 仅允许字母数字/-/_ , 2-63 字符")
+
+    token = auth_config.generate_enroll_token(node_id)
+    fingerprint = auth_config.get_tls_fingerprint().replace(":", "").lower()
+    base = _public_base_url(request)
+    script_src = (
+        f"{base}/install.sh"
+        if INSTALL_SCRIPT
+        else "https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-platform/master/deploy/node-install.sh"
+    )
+    cmd = (
+        f"bash <(curl -Lsk {script_src}) "
+        f"-e {base} "
+        f"-t {token} "
+        f"--id {node_id} "
+        f"--type {type}"
+        + (f" --fingerprint {fingerprint}" if fingerprint else "")
+    )
+    # 当前小时桶结束时刻 ≈ 有效期上限
+    now = datetime.now(timezone.utc)
+    expiry = now.replace(minute=59, second=59, microsecond=0) + timedelta(hours=1)
+
+    await _audit("enroll_command_issued", "authenticated_user", {"node_id": node_id, "type": type})
+    return APIResponse(success=True, data={
+        "command": cmd,
+        "node_id": node_id,
+        "type": type,
+        "expires_at": expiry.isoformat(),
+        "tls_fingerprint": auth_config.get_tls_fingerprint(),
+    })
+
+
 @app.get("/api/v1/nodes/{node_id}", response_model=APIResponse)
 async def get_node(
     node_id: str,
@@ -334,6 +402,108 @@ async def get_node(
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     return APIResponse(success=True, data=node.model_dump(mode='json'))
+
+
+# ========== 一键安装引导 (Komari 式: 面板生成命令, 节点粘贴自装自注册) ==========
+
+NODE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,62}$")
+
+
+def _public_base_url(request: Request) -> str:
+    """对外可访问的控制器基址 (scheme+host), 供安装命令/CA 分发拼接"""
+    host = request.headers.get("host") or request.url.netloc
+    return f"{request.url.scheme}://{host}"
+
+
+async def _audit(event_type: str, actor: str, details: dict):
+    await audit_logger.log_event(AuditEvent(
+        event_id=uuid.uuid4().hex,
+        event_type=event_type,
+        actor=actor,
+        details=details
+    ))
+
+
+@app.get("/install.sh", include_in_schema=False)
+async def serve_install_script(request: Request):
+    """分发节点安装器; __CONTROLLER_URL__ 占位符按请求地址替换, 命令可省略 -e 参数"""
+    if not INSTALL_SCRIPT:
+        raise HTTPException(status_code=404, detail="install script not bundled")
+    base = _public_base_url(request)
+    body = INSTALL_SCRIPT.read_bytes().decode("utf-8")
+    body = body.replace("__CONTROLLER_URL__", base)
+    await _audit("config_change", "system", {
+        "action": "install_script_served", "controller_url": base
+    })
+    return PlainTextResponse(body, media_type="text/x-shellscript; charset=utf-8")
+
+
+@app.get("/api/v1/controller-info", include_in_schema=False)
+async def controller_info(request: Request):
+    """公开元信息: TLS 指纹(供节点钉扎校验)、可用制品列表、安装脚本状态"""
+    artifacts = []
+    if ARTIFACTS_DIR:
+        artifacts = sorted(
+            p.name for p in ARTIFACTS_DIR.iterdir()
+            if p.is_file() and p.name.endswith(".tar.gz")
+        )
+    return {
+        "service": "ddos-controller",
+        "version": app.version,
+        "base_url": _public_base_url(request),
+        "tls_fingerprint": auth_config.get_tls_fingerprint(),
+        "artifacts": artifacts,
+        "install_script_available": INSTALL_SCRIPT is not None,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+class EnrollRequest(BaseModel):
+    node_id: str
+    enroll_token: str
+
+
+@app.post("/api/v1/nodes/enroll", include_in_schema=False)
+async def enroll_node(req: EnrollRequest, request: Request):
+    """节点自助接入 (无认证端点, 由无状态 enroll token 把关):
+    校验 HMAC(secret,'ddos-enroll:'+node_id+':'+小时桶) → 返回运行所需配置。
+    token 绑定 node_id 且约 1 小时自然过期, 服务端零存储。"""
+    if not NODE_ID_RE.match(req.node_id):
+        raise HTTPException(status_code=400, detail="Invalid node_id format")
+
+    if not auth_config.verify_enroll_token(req.node_id, req.enroll_token.strip()):
+        await asyncio.sleep(1.0)  # 拖慢爆破
+        await _audit("node_enroll_failed", req.node_id, {
+            "source_ip": request.client.host if request.client else "unknown"
+        })
+        raise HTTPException(status_code=403, detail="Invalid or expired enroll token")
+
+    secret = os.getenv("SHARED_SECRET") or auth_config.shared_secret.decode()
+    cidrs = [c.strip() for c in os.getenv("ALLOWED_TARGET_CIDRS", "127.0.0.0/8").split(",") if c.strip()]
+    await _audit("node_enroll_success", req.node_id, {
+        "source_ip": request.client.host if request.client else "unknown"
+    })
+    return {
+        "node_id": req.node_id,
+        "shared_secret": secret,
+        "allowed_target_cidrs": ",".join(cidrs),
+        "ca_cert_url": f"{_public_base_url(request)}/artifacts/ca-cert.pem",
+        "tls_fingerprint": auth_config.get_tls_fingerprint(),
+        "enrolled_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# CA 证书分发 (先于 /artifacts 静态挂载注册, 保证证书缺失于制品目录时仍可下载)
+@app.get("/artifacts/ca-cert.pem", include_in_schema=False)
+async def serve_ca_cert():
+    ca = Path(auth_config.ca_cert_path)
+    if not ca.exists():
+        raise HTTPException(status_code=404, detail="CA cert not available on controller")
+    return FileResponse(ca, media_type="application/x-pem-file", filename="ca-cert.pem")
+
+
+if ARTIFACTS_DIR:
+    app.mount("/artifacts", StaticFiles(directory=str(ARTIFACTS_DIR)), name="artifacts")
 
 
 # ========== 限流状态 ==========
