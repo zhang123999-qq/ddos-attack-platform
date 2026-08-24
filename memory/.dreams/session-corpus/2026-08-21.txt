@@ -1,3 +1,0 @@
-[main/sessions/main/802547dd-835b-4594-9687-9ce1adc1262f.jsonl#L5] User: 深度自检自查一遍
-[main/sessions/main/802547dd-835b-4594-9687-9ce1adc1262f.jsonl#L23] Assistant: **深度自检自查完成** ✅ --- ### 运行环境 | 项目 | 状态 | |------|------| | **OpenClaw** | 2026.7.1-2 (0790d9f) — 运行正常 | | **Gateway** | 端口 18789，token 认证，本地模式 | | **模型** | nvidia/nemotron-3-ultra-550b-a55b:free via custom-custom2c (api.006336.xyz/v1) | | **上下文窗口** | 200k tokens，当前占
-[main/sessions/main/802547dd-835b-4594-9687-9ce1adc1262f.jsonl#L23] Assistant: appId/Secret、模型提供商、工具拒绝列表 | | `state/openclaw.sqlite` | 存在（Gateway 状态库） | | `agents/main/agent/openclaw-agent.sqlite` | 存在（Agent 状态库） | | `workspace/` | AGENTS.md, SOUL.md, IDENTITY.md, USER.md, MEMORY.md, TOOLS.md, HEARTBEAT.md 全部就绪 | | `memory/2026-08-21.md` | 已记

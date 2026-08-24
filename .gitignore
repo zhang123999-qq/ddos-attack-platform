@@ -64,6 +64,18 @@ generated/*.env
 .DS_Store
 Thumbs.db
 
+# Foreign workspace tool state (keep out of this platform repo)
+memory/
+openclaw-workspace-state.json
+AGENTS.md
+SOUL.md
+USER.md
+MEMORY.md
+DREAMS.md
+HEARTBEAT.md
+IDENTITY.md
+TOOLS.md
+
 # Docker
 *.tar.gz
 *.zip
