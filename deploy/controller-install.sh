@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# DDoS Attack Platform — 控制器一键安装 (3x-ui 式)
+# DDoS Attack Platform — 控制器一键安装
 #
 #   bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-platform/master/deploy/controller-install.sh)
 #

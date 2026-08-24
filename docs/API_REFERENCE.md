@@ -415,7 +415,7 @@ Authorization: Bearer <TOKEN>
 
 ---
 
-### 一键安装引导 (Komari 式, v1.1)
+### 一键安装引导 (v1.1)
 
 | 端点 | 方法 | 认证 | 说明 |
 |------|------|------|------|
@@ -722,6 +722,7 @@ wscat -c "$CONTROLLER_URL/ws/metrics?token=$TOKEN&channels=nodes,attacks,metrics
 | 版本 | 日期 | 变更摘要 |
 |------|------|----------|
 | v1.1 | 2024-12-19 | 新增 Node API 文档、完善错误码、补充 Python/cURL 示例、修复 datetime 序列化说明；rate-limits 响应改为 quotas 数组（按 attack_id+node_id 记账）；场景运行 overrides 必填（400 校验）；新增 emergency_stop/reset 端点；节点注册/心跳/注销/结果上报身份一致性校验 (403)；TLS_VERIFY_CLIENT 开关说明 |
+| v1.2 | 2024-12-20 | 新增一键安装引导端点组：enroll-command / nodes/enroll / controller-info / install.sh / artifacts 分发；无状态 enroll token 机制说明 |
 | v1.0 | 2024-01-15 | 初始版本：REST API、WebSocket、场景管理、限流查询 |
 
 ---

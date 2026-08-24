@@ -100,6 +100,9 @@
 | Ctrl → Node | `POST /api/v1/attacks/{id}/stop` | 停止指令 | mTLS + Controller Cmd Token |
 | Ctrl → Node | `POST /api/v1/emergency_stop` | 熔断广播 | mTLS + Controller Cmd Token |
 | Ctrl → Node | `POST /api/v1/emergency_stop/reset` | 熔断复位广播 (v1.1) | mTLS + Controller Cmd Token |
+| Node → Ctrl | `POST /api/v1/nodes/enroll` | 节点自助接入换配置 (v1.2, enroll token 认证) | 无状态 Enroll Token |
+| Ops → Ctrl | `GET /api/v1/nodes/enroll-command` | 生成节点安装命令 (v1.2) | Bearer Controller Token |
+| Node → Ctrl | `GET /install.sh` `/artifacts/*` `/api/v1/controller-info` | 安装脚本/CA/制品分发 (v1.2) | 公开 |
 
 > **身份一致性校验 (v1.1)**：register / heartbeat / unregister / results 均校验
 > 请求体中的 `node_id` 与认证派生的节点身份一致，不一致返回 403，防止跨节点伪造。
@@ -395,6 +398,10 @@ certs/
 
 **分发命令**：`./deploy/distribute-certs.sh` (基于 `config.yaml` 自动 SSH 分发)
 
+> **拉取式替代 (v1.2)**：一键安装模式下节点无需预配证书——控制器安装器现场生成
+> 自签证书 (SAN=本机 IP)，节点经 `/artifacts/ca-cert.pem` 引导信任链 + 指纹交叉校验，
+> 再以 enroll token 在受验证 TLS 信道换取运行配置。见 README「方式〇」。
+
 ---
 
 ## 7. 扩展指南
@@ -496,6 +503,7 @@ certs/
 
 | 版本 | 日期 | 变更摘要 | 影响范围 |
 |------|------|---------|---------|
+| v1.2 | 2024-12-20 | 一键安装体系（控制器交互式安装器 + 节点拉取式自助接入：无状态 enroll token、CA/制品分发、WebUI 命令生成）、部署脚本安全加固（SSH accept-new、eval 注入封堵、密钥强制校验）、REQUIRE_SHARED_SECRET | 部署链 + 控制器 API |
 | v1.1 | 2024-12-19 | Controller↔Attacker 实时 HTTP 指令下发、二进制部署、审计修复、安全加固、datetime 序列化修复 | 全栈 |
 | v1.0 | 2024-01-15 | 初始版本：基础编排、5 种攻击、mTLS、WebSocket、Docker 部署 | 全栈 |
 

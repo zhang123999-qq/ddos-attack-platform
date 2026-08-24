@@ -213,10 +213,19 @@ curl http://10.100.1.20:8080/metrics
 # 证书生成
 cd deploy && ./generate_certs.sh
 
-# 部署
+# 部署 (推荐: 一键安装, WebUI 生成命令免 SSH)
+# 主控制器:
+bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-platform/master/deploy/controller-install.sh)
+# 攻击节点: WebUI「节点管理」→「➕ 添加节点」→ 复制命令到攻击机执行
+
+# 传统 SSH 推送式部署
 cd deploy && ./install.sh --role controller
 cd deploy && ./install.sh --role attacker-http --host 10.100.1.20
 cd deploy && ./install.sh --role attacker-raw --host 10.100.1.21
+
+# 节点管理命令 (安装器自带)
+ddos-controller status        # 控制器状态/日志/卸载
+ddos-node logs                # 攻击节点日志
 
 # 日志查看
 docker-compose -f controller/docker-compose.yml logs -f controller

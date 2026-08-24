@@ -85,7 +85,7 @@ class AuthConfig:
         """Controller 下发指令给 Attacker 时使用的 Token"""
         return hmac.new(self.shared_secret, b"ddos-controller-cmd", hashlib.sha256).hexdigest()
 
-    # ========== 一键安装 (Komari 式) : 无状态 enroll token ==========
+    # ========== 一键安装 : 无状态 enroll token ==========
 
     ENROLL_DOMAIN = b"ddos-enroll:"
 

@@ -524,7 +524,7 @@
             return resp.json();
         }
 
-        // ========== 添加节点 (Komari 式一键安装命令生成) ==========
+        // ========== 添加节点 (一键安装命令生成) ==========
         function suggestNodeId() {
             const type = document.getElementById('enrollType').value;
             const prefix = type === 'raw' ? 'attacker-raw-' : 'attacker-http-';

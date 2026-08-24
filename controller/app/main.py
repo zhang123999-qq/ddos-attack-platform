@@ -404,7 +404,7 @@ async def get_node(
     return APIResponse(success=True, data=node.model_dump(mode='json'))
 
 
-# ========== 一键安装引导 (Komari 式: 面板生成命令, 节点粘贴自装自注册) ==========
+# ========== 一键安装引导 (面板生成命令, 节点粘贴自装自注册) ==========
 
 NODE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,62}$")
 

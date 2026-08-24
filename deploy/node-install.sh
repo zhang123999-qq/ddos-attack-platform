@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# DDoS Attack Platform — 攻击节点一键安装器 (Komari 式拉取安装)
+# DDoS Attack Platform — 攻击节点一键安装器 (拉取式自助安装)
 #
 # 由控制器 WebUI「添加节点」生成完整命令, 在目标 Linux 服务器以 root 粘贴执行:
 #   bash <(curl -Lsk https://<CONTROLLER>:8443/install.sh) \
@@ -240,7 +240,7 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 UNIT
 
-# ---------- 管理命令 (对齐 x-ui 习惯) ----------
+# ---------- 管理命令 ----------
 cat > "$CTL_PATH" <<'CTL'
 #!/bin/bash
 case "$1" in

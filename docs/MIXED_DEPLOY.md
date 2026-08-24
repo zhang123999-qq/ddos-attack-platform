@@ -4,6 +4,22 @@
 
 ---
 
+## ⚡ 零 SSH 一键安装（新增，最简路径）
+
+适合单台控制器 + 逐台添加攻击节点的场景，无需预声明拓扑、无需管理机 SSH 权限：
+
+```bash
+# 1. 控制器: 一条命令 (交互式配置, 自动 systemd)
+bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-platform/master/deploy/controller-install.sh)
+
+# 2. 攻击节点: WebUI「节点管理」→「➕ 添加节点」→ 复制命令 → 攻击机粘贴执行
+#    节点自动下载二进制并注册上线; 管理命令 ddos-node {status|logs|uninstall}
+```
+
+> 下文的 unified-deploy.sh 流程适用于**批量预声明拓扑**的集群场景。
+
+---
+
 ## 🎯 核心设计
 
 ```

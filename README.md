@@ -48,7 +48,7 @@
 
 ## 🚀 快速开始（四种部署方式，任选其一）
 
-### 方式〇：一键安装（3x-ui / Komari 式，最快上手）⭐
+### 方式〇：一键安装（最快上手）⭐
 
 **主控制器** — 在一台 Linux 服务器以 root 执行：
 
@@ -59,7 +59,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-pla
 交互式配置端口/密钥/白名单后自动完成 systemd 部署，结束时打印 WebUI 地址。
 管理命令：`ddos-controller {status|logs|restart|stop|uninstall}`
 
-**添加攻击节点（Komari 式）** — 打开 WebUI「节点管理」→「➕ 添加节点」，
+**添加攻击节点** — 打开 WebUI「节点管理」→「➕ 添加节点」，
 选择类型、填节点 ID，复制生成的命令到目标攻击机以 root 粘贴执行：
 
 ```bash
@@ -175,6 +175,9 @@ cd attacker   && start.bat
 ---
 
 ## 📋 详细部署指南
+
+> ⚡ **更简单的方式**：见上方「方式〇：一键安装」——控制器一条命令、节点 WebUI 复制粘贴，
+> 全程无需手动生成证书或编辑配置。以下为传统手动部署流程（精细控制时使用）。
 
 ### 1. 控制器部署（1 台机器）
 
@@ -374,6 +377,10 @@ cd deploy
 ./unified-deploy.sh status             # 查看集群健康
 ./unified-deploy.sh logs controller    # 查看日志
 ./unified-deploy.sh stop               # 停止全集群
+
+# === 一键安装节点/控制器管理 (安装器自带, v1.2) ===
+ddos-controller {status|logs|restart|stop|uninstall}   # 控制器 (二进制安装模式)
+ddos-node {start|stop|restart|status|logs|uninstall}   # 攻击节点
 
 # === 手动 Docker 操作 ===
 docker logs -f ddos-controller         # Controller 日志

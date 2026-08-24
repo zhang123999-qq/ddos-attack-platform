@@ -241,6 +241,7 @@
 | 节点密钥 | `attacker/certs/node-key.pem` | 600 | 1 年 | 每节点唯一 |
 | 节点证书 | `attacker/certs/node-cert.pem` | 644 | 1 年 | Controller 验证用 |
 | SHARED_SECRET | 密码管理器 / 环境变量（如 HashiCorp Vault） | - | 90 天（人工轮换） | **严禁写入代码/配置文件/镜像**。注：平台不强制过期——90 天为人工轮换纪律，轮换时须全节点同步更新并重启；生产镜像开启 `REQUIRE_SHARED_SECRET=true` 拒绝弱/默认密钥启动 |
+| Enroll Token (v1.2) | 派生值，不落盘存储 | - | ≤2 小时（自动过期） | 由 SHARED_SECRET 经 HMAC 派生并绑定单节点 ID，仅用于节点自助接入时换取运行配置；服务端零存储、失败限速、全程审计。**不产生新的需保管的秘密**——安全性完全依附 SHARED_SECRET |
 
 ### 泄露应急响应流程（SLA：发现后 15 分钟内启动）
 
