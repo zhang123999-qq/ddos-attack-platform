@@ -112,8 +112,10 @@ class AuthConfig:
         return False
 
     def get_tls_fingerprint(self) -> str:
-        """控制器证书 SHA-256 指纹 (冒号分隔大写十六进制), 供节点安装器钉扎校验;
-        证书文件不可读时返回空串"""
+        """控制器证书 SHA-256 指纹 (DER 编码摘要, 与 openssl x509 -fingerprint 同语义;
+        冒号分隔大写十六进制), 供节点安装器钉扎校验。
+        证书不可读或解析失败时返回空串 —— 绝不静默切换哈希语义
+        (否则节点侧会因语义漂移误报 MITM)。"""
         try:
             import cryptography.x509 as x509
             from cryptography.hazmat.primitives import serialization
@@ -123,12 +125,7 @@ class AuthConfig:
             digest = hashlib.sha256(der).hexdigest().upper()
             return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
         except Exception:
-            # cryptography 缺失或证书不存在 — 降级为对文件原样字节哈希
-            try:
-                digest = hashlib.sha256(Path(self.cert_path).read_bytes()).hexdigest().upper()
-                return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
-            except Exception:
-                return ""
+            return ""
 
     def generate_controller_auth_headers(self, target_node_id: str) -> dict:
         """生成 Controller 调用 Attacker API 的认证头"""

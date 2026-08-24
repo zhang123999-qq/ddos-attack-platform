@@ -137,7 +137,7 @@ if [[ -n "$DECLARED_NORM" && -n "$SERVED_FP" ]]; then
     fi
     log_info "TLS fingerprint verified"
 else
-    log_warn "Fingerprint check unavailable (${- DECLARED:+x}); continuing with CA pinning only"
+    log_warn "Fingerprint check unavailable; continuing with CA pinning only"
 fi
 
 # 命令行显式指纹 > 自报指纹 双保险
@@ -149,12 +149,15 @@ fi
 
 # ---------- Enroll: 用一次性 token 换取运行配置 ----------
 log_step "Enrolling node '$NODE_ID'"
+ENROLL_CODE=0
 ENROLL_JSON=$(curl -Ls --cacert "$TMP_CA" --max-time 20 \
     -H "Content-Type: application/json" \
     -d "{\"node_id\":\"$NODE_ID\",\"enroll_token\":\"$ENROLL_TOKEN\"}" \
-    "$ENDPOINT/api/v1/nodes/enroll")
-ENROLL_CODE=$?
-[[ $ENROLL_CODE -ne 0 ]] && { log_error "Enroll request failed (network/TLS)"; exit 1; }
+    "$ENDPOINT/api/v1/nodes/enroll") || ENROLL_CODE=$?
+if [[ $ENROLL_CODE -ne 0 ]]; then
+    log_error "Enroll request failed (network/TLS), curl exit=$ENROLL_CODE"
+    exit 1
+fi
 
 SHARED_SECRET=$(echo "$ENROLL_JSON" | python3 -c "
 import sys,json

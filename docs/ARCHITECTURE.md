@@ -47,7 +47,7 @@
 │         └────────────────┴────────────────┴────────────────────┘              │
 │                                  │                                             │
 │                    ┌─────────────┴─────────────┐                               │
-│                    │      mTLS 1.2+ 双向认证     │                               │
+│                    │  HTTPS/HMAC Token 双向认证   │                               │
 │                    │    + HMAC-SHA256 Token     │                               │
 │                    └─────────────┬─────────────┘                               │
 └─────────────────────────────────│───────────────────────────────────────────────┘
@@ -77,7 +77,7 @@
 
 ## 2. 通信协议
 
-### 2.1 Controller ↔ Attacker (mTLS + REST)
+### 2.1 Controller ↔ Attacker (REST + HMAC Token)
 
 **认证流程**：
 
@@ -92,14 +92,14 @@
 
 | 方向 | 端点 | 说明 | 认证 |
 |------|------|------|------|
-| Node → Ctrl | `POST /api/v1/nodes/register` | 节点注册 | mTLS + Node Token |
-| Node → Ctrl | `POST /api/v1/nodes/heartbeat` | 心跳上报 (默认 10s) | mTLS + Node Token |
-| Node → Ctrl | `POST /api/v1/results` | 攻击结果上报 | mTLS + Node Token |
-| Node → Ctrl | `POST /api/v1/nodes/unregister` | 节点优雅注销 (v1.1) | mTLS + Node Token |
-| Ctrl → Node | `POST /api/v1/attacks/execute` | 下发攻击指令 | mTLS + Controller Cmd Token |
-| Ctrl → Node | `POST /api/v1/attacks/{id}/stop` | 停止指令 | mTLS + Controller Cmd Token |
-| Ctrl → Node | `POST /api/v1/emergency_stop` | 熔断广播 | mTLS + Controller Cmd Token |
-| Ctrl → Node | `POST /api/v1/emergency_stop/reset` | 熔断复位广播 (v1.1) | mTLS + Controller Cmd Token |
+| Node → Ctrl | `POST /api/v1/nodes/register` | 节点注册 | HTTPS + Node Token (HMAC) |
+| Node → Ctrl | `POST /api/v1/nodes/heartbeat` | 心跳上报 (默认 10s) | HTTPS + Node Token (HMAC) |
+| Node → Ctrl | `POST /api/v1/results` | 攻击结果上报 | HTTPS + Node Token (HMAC) |
+| Node → Ctrl | `POST /api/v1/nodes/unregister` | 节点优雅注销 (v1.1) | HTTPS + Node Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/attacks/execute` | 下发攻击指令 | HTTP + Controller Cmd Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/attacks/{id}/stop` | 停止指令 | HTTP + Controller Cmd Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/emergency_stop` | 熔断广播 | HTTP + Controller Cmd Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/emergency_stop/reset` | 熔断复位广播 (v1.1) | HTTP + Controller Cmd Token (HMAC) |
 | Node → Ctrl | `POST /api/v1/nodes/enroll` | 节点自助接入换配置 (v1.2, enroll token 认证) | 无状态 Enroll Token |
 | Ops → Ctrl | `GET /api/v1/nodes/enroll-command` | 生成节点安装命令 (v1.2) | Bearer Controller Token |
 | Node → Ctrl | `GET /install.sh` `/artifacts/*` `/api/v1/controller-info` | 安装脚本/CA/制品分发 (v1.2) | 公开 |
@@ -224,7 +224,7 @@ wss://<controller>:8443/ws/metrics?token=<CTRL_TOKEN>&channels=nodes,attacks,met
 │  职责：场景编排、熔断决策、审计归档、配额分配、节点生命周期     │
 │  权限：读写所有资源、广播熔断、查看完整审计                   │
 └────────────────────────────┬─────────────────────────────────┘
-                              │ mTLS 1.2+ + HMAC-SHA256 Token
+                              │ TLS + HMAC-SHA256 Token
                               ▼
 ┌────────────────────────────────────────────────────────────┐
 │                    控制平面 (Attacker Nodes)                  │

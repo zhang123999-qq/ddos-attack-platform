@@ -5,7 +5,7 @@
 [![Auth](https://img.shields.io/badge/auth-Bearer%20%7C%20mTLS-orange.svg)]()
 
 > **基础 URL**: `https://<controller-host>:8443/api/v1`  
-> **认证方式**: Controller API → `Authorization: Bearer <TOKEN>` | Node API → mTLS + `X-Node-ID` + `X-Node-Token`  
+> **认证方式**: Controller API → `Authorization: Bearer <TOKEN>` (HMAC 派生) | Node→Controller 上报 → HTTPS + `X-Node-ID` + `X-Node-Token` (HMAC 派生) | Controller→Node 下发 → HTTP + `X-Node-ID` + `X-Node-Token` (Cmd Token, 内网明文)  
 > **内容类型**: `application/json`  
 > **字符编码**: UTF-8  
 > **日期格式**: ISO 8601 (UTC), 如 `2024-01-15T10:30:00Z`
@@ -551,7 +551,7 @@ wscat -c "wss://<controller>:8443/ws/metrics?token=<TOKEN>&channels=nodes,attack
 
 ---
 
-## 📊 Node API (Attacker 节点暴露，需 mTLS + Node Token)
+## 📊 Node API (Attacker 节点暴露，Node Token 认证)
 
 > **基础 URL**: `http://<attacker-host>:8080` (HTTP，内网无 TLS 终结)  
 > **认证 Headers**: `X-Node-ID` + `X-Node-Token`
