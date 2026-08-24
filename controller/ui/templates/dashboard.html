@@ -147,6 +147,44 @@
             <div class="tab-content" id="tab-nodes" style="display:none;">
                 <div class="card">
                     <div class="card-header">
+                        <h3>➕ 添加攻击节点</h3>
+                    </div>
+                    <div class="card-body">
+                        <p style="color:#888;font-size:0.85rem;margin-bottom:0.75rem;">
+                            在目标 Linux 服务器以 root 执行以下命令，节点将自动安装并注册上线（无需 SSH 预配置）。
+                            命令约 1 小时内有效且绑定节点 ID。
+                        </p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>节点类型</label>
+                                <select id="enrollType" onchange="document.getElementById('enrollNodeId').value=''">
+                                    <option value="http">HTTP / Slowloris</option>
+                                    <option value="raw">RAW (SYN/UDP, 需要 CAP_NET_RAW)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>节点 ID</label>
+                                <input type="text" id="enrollNodeId" placeholder="attacker-http-02" maxlength="63" />
+                            </div>
+                            <div class="form-group" style="align-self:flex-end;">
+                                <button class="btn btn-primary" onclick="generateEnrollCommand()">生成安装命令</button>
+                            </div>
+                        </div>
+                        <div id="enrollResult" style="display:none;">
+                            <textarea id="enrollCommandBox" readonly
+                                style="width:100%;min-height:72px;background:#1a1f2e;color:#7ee787;border:1px solid #30363d;
+                                       border-radius:6px;padding:0.75rem;font-family:monospace;font-size:0.8rem;resize:vertical;"></textarea>
+                            <div style="margin-top:0.5rem;display:flex;gap:1rem;align-items:center;">
+                                <button class="btn btn-primary" onclick="copyEnrollCommand()" style="padding:0.35rem 1rem;">📋 复制命令</button>
+                                <span id="enrollExpiry" style="color:#d29922;font-size:0.8rem;"></span>
+                                <span id="copyHint" style="color:#7ee787;font-size:0.8rem;display:none;">已复制 ✓</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
                         <h3>攻击节点</h3>
                     </div>
                     <div class="card-body">
@@ -477,13 +515,63 @@
         async function apiPost(path, body) {
             const resp = await fetch(`${API_BASE}${path}`, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Authorization': `Bearer ${TOKEN}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(body)
             });
             return resp.json();
+        }
+
+        // ========== 添加节点 (Komari 式一键安装命令生成) ==========
+        function suggestNodeId() {
+            const type = document.getElementById('enrollType').value;
+            const prefix = type === 'raw' ? 'attacker-raw-' : 'attacker-http-';
+            const existing = Object.keys(nodes).filter(id => id.startsWith(prefix));
+            let maxN = 0;
+            existing.forEach(id => {
+                const m = id.match(/(\d+)$/);
+                if (m) maxN = Math.max(maxN, parseInt(m[1]));
+            });
+            return `${prefix}${String(maxN + 1).padStart(2, '0')}`;
+        }
+
+        async function generateEnrollCommand() {
+            let nodeId = document.getElementById('enrollNodeId').value.trim();
+            if (!nodeId) {
+                nodeId = suggestNodeId();
+                document.getElementById('enrollNodeId').value = nodeId;
+            }
+            if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{1,62}$/.test(nodeId)) {
+                alert('节点 ID 仅允许字母数字、-、_，2-63 字符');
+                return;
+            }
+            const type = document.getElementById('enrollType').value;
+            try {
+                const res = await apiGet(`/nodes/enroll-command?type=${type}&node_id=${encodeURIComponent(nodeId)}`);
+                if (!res.success) { alert(`生成失败: ${res.detail || res.error || 'unknown'}`); return; }
+                document.getElementById('enrollCommandBox').value = res.data.command;
+                const exp = new Date(res.data.expires_at);
+                document.getElementById('enrollExpiry').textContent =
+                    `⏱ 有效期至 ${exp.toLocaleTimeString()} (绑定节点 ${nodeId}, 仅此节点可用)`;
+                document.getElementById('enrollResult').style.display = 'block';
+                document.getElementById('copyHint').style.display = 'none';
+            } catch (err) {
+                alert('请求异常: ' + err);
+            }
+        }
+
+        async function copyEnrollCommand() {
+            const box = document.getElementById('enrollCommandBox');
+            try {
+                await navigator.clipboard.writeText(box.value);
+            } catch (e) {
+                box.select(); document.execCommand('copy');
+            }
+            const hint = document.getElementById('copyHint');
+            hint.style.display = 'inline';
+            setTimeout(() => hint.style.display = 'none', 2000);
         }
 
         function initAttackForm() {
