@@ -7,8 +7,8 @@ services:
   # ========== Controller ==========
   controller:
     build:
-      context: ./controller
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: controller/Dockerfile
     container_name: ddos-controller
     restart: unless-stopped
     environment:
@@ -34,6 +34,9 @@ services:
       - ./controller/certs:/certs:ro
       - controller-logs:/var/log/ddos-audit
       - ./scenarios:/app/scenarios:ro
+      # 一键安装分发: 节点安装脚本 + 攻击节点二进制制品 (放入 *.tar.gz 即可)
+      - ./deploy/node-install.sh:/app/deploy/node-install.sh:ro
+      - ./artifacts:/app/artifacts
     ports:
       - "8443:8443"
     networks:
@@ -49,8 +52,8 @@ services:
   # ========== Attacker HTTP (普通权限) ==========
   attacker-http:
     build:
-      context: ./attacker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: attacker/Dockerfile
     container_name: ddos-attacker-http
     restart: unless-stopped
     environment:
@@ -91,8 +94,8 @@ services:
   # ========== Attacker RAW (需特权，用于 SYN/UDP) ==========
   attacker-raw:
     build:
-      context: ./attacker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: attacker/Dockerfile.raw
     container_name: ddos-attacker-raw
     restart: unless-stopped
     # RAW 攻击需要特权

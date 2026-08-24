@@ -46,9 +46,38 @@
 
 ---
 
-## 🚀 快速开始（三种部署方式，任选其一）
+## 🚀 快速开始（四种部署方式，任选其一）
 
-### 方式一：Docker 部署（推荐，最简单）
+### 方式〇：一键安装（3x-ui / Komari 式，最快上手）⭐
+
+**主控制器** — 在一台 Linux 服务器以 root 执行：
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-platform/master/deploy/controller-install.sh)
+```
+
+交互式配置端口/密钥/白名单后自动完成 systemd 部署，结束时打印 WebUI 地址。
+管理命令：`ddos-controller {status|logs|restart|stop|uninstall}`
+
+**添加攻击节点（Komari 式）** — 打开 WebUI「节点管理」→「➕ 添加节点」，
+选择类型、填节点 ID，复制生成的命令到目标攻击机以 root 粘贴执行：
+
+```bash
+# 形态示例 (实际以 WebUI 生成的一行为准, 内含一次性 enroll token)
+bash <(curl -Lsk https://<CONTROLLER_IP>:8443/install.sh) \
+    -e https://<CONTROLLER_IP>:8443 \
+    -t <enroll_token> --id attacker-http-02 --type http
+```
+
+节点自动：下载二进制（优先控制器内网分发，回退 GitHub）→ 写入配置 →
+systemd 启动 → **自动注册出现在仪表盘**。无需 SSH、无需预配证书。
+管理命令：`ddos-node {status|logs|restart|uninstall}`
+
+> 安全机制：enroll token = HMAC(SHARED_SECRET, "ddos-enroll:"+node_id+":"+小时桶)，
+> 绑定单个节点且约 1 小时自然过期；节点通过控制器自签 CA + 指纹交叉校验后，
+> 才在受验证 TLS 信道内换取运行密钥。
+
+### 方式一：Docker 部署
 
 ```bash
 # 1. 克隆项目

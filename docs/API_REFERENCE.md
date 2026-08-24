@@ -415,6 +415,21 @@ Authorization: Bearer <TOKEN>
 
 ---
 
+### 一键安装引导 (Komari 式, v1.1)
+
+| 端点 | 方法 | 认证 | 说明 |
+|------|------|------|------|
+| `/api/v1/nodes/enroll-command?type=http\|raw&node_id=X` | GET | ✅ Bearer | 生成节点一键安装命令（WebUI「添加节点」数据源），含约 1h 有效期 |
+| `POST /api/v1/nodes/enroll` | POST | enroll token | 节点自助接入：`{node_id, enroll_token}` → 返回运行配置（shared_secret/白名单/CA 地址/TLS 指纹） |
+| `GET /api/v1/controller-info` | GET | 无 | 公开元信息：版本、TLS 指纹（供节点钉扎校验）、可用制品列表 |
+| `GET /install.sh` | GET | 无 | 分发节点安装脚本（自动注入控制器地址） |
+| `GET /artifacts/ca-cert.pem` | GET | 无 | 分发控制器 CA 证书（自签场景供节点信任链引导） |
+| `GET /artifacts/{file}` | GET | 无 | 二进制制品分发（`ddos-attacker-linux-x86_64.tar.gz` 等，挂载 ./artifacts 目录） |
+
+**enroll token 机制**：`HMAC-SHA256(SHARED_SECRET, "ddos-enroll:" + node_id + ":" + UTC小时桶)`，
+绑定单个节点、服务端零存储、当前+上一小时桶内有效。失败响应 403（带 1s 延迟防爆破），全部尝试入审计日志
+（事件类型 `node_enroll_success` / `node_enroll_failed` / `enroll_command_issued`）。
+
 ### 限流状态查询
 
 ```http

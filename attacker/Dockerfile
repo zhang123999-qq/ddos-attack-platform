@@ -16,7 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
-COPY app/ ./app/
+COPY attacker/app/ ./app/
 
 # 创建非 root 用户 (RAW 攻击需要特权，见 docker-compose)
 RUN useradd -m -u 1000 appuser && \

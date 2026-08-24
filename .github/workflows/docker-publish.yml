@@ -57,7 +57,8 @@ jobs:
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v5
         with:
-          context: ./${{ matrix.service == 'controller' && 'controller' || 'attacker' }}
+          # context 提升为仓库根: controller 镜像可打包 deploy/node-install.sh 供 /install.sh 分发
+          context: .
           file: ./${{ matrix.service == 'controller' && 'controller/Dockerfile' || (matrix.service == 'attacker-raw' && 'attacker/Dockerfile.raw' || 'attacker/Dockerfile') }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
