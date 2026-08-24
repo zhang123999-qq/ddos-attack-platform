@@ -75,6 +75,18 @@ hidden_imports = [
     'uuid',
     'hashlib',
     'hmac',
+    # 应用自身模块 (orchestrator 拆分后必须显式列出, 否则 PYZ 缺失)
+    'app',
+    'app.main',
+    'app.models',
+    'app.auth',
+    'app.audit',
+    'app.websocket',
+    'app.node_commander',
+    'app.orchestrator',
+    'app.ratelimit',
+    'app.registry',
+    'app.scenario',
 ]
 
 # 运行时数据文件 — 路径基于 spec 所在目录动态解析 (PyInstaller 注入 SPECPATH),

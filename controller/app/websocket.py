@@ -157,11 +157,15 @@ async def broadcast_node_update(node_data: dict):
 
 
 async def broadcast_node_heartbeat(heartbeat: NodeHeartbeat):
-    await manager.broadcast(Channels.METRICS, {
+    # 心跳同时推 nodes (节点实时状态) 与 metrics (性能曲线) 两个频道,
+    # WebUI 默认订阅两者, 但只订阅单一频道的客户端也不丢帧
+    payload = {
         "type": "node_heartbeat",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "data": heartbeat.model_dump(mode='json')
-    })
+    }
+    await manager.broadcast(Channels.NODES, payload)
+    await manager.broadcast(Channels.METRICS, payload)
 
 
 async def broadcast_attack_start(attack_data: dict):

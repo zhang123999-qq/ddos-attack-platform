@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import uuid
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -31,7 +32,11 @@ class ScenarioManager:
 
     def _load_builtin_scenarios(self):
         """加载内置场景 - 支持多种路径搜索"""
-        search_paths = [
+        search_paths = []
+        if getattr(sys, "frozen", False):
+            # PyInstaller: spec datas 将 scenarios/ 解包到 _MEIPASS
+            search_paths.append(Path(getattr(sys, "_MEIPASS", ".")) / "scenarios")
+        search_paths += [
             Path(__file__).parent.parent.parent / "scenarios",   # 容器内标准路径
             Path.cwd() / "scenarios",                             # 当前目录
             Path(os.getenv("SCENARIOS_PATH", "")),                # 环境变量指定

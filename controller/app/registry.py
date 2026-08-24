@@ -270,15 +270,25 @@ class AttackExecutor:
         task.add_done_callback(self._bg_tasks.discard)
 
     def get_attack_status(self, attack_id: str) -> Optional[Dict[str, Any]]:
-        if attack_id not in self._active_attacks:
-            return None
-        command = self._active_attacks[attack_id]
+        # 已停止的攻击仍可查询历史结果 (stop_attack 只清 active 表, 保留 results)
+        command = self._active_attacks.get(attack_id)
         results = self._attack_results.get(attack_id, {})
+        if command is None and not results:
+            return None
+        if command is not None:
+            return {
+                "attack_id": attack_id,
+                "command": command.model_dump(mode='json'),
+                "results": {nid: r.model_dump(mode='json') for nid, r in results.items()},
+                "node_count": len(results)
+            }
+        # 仅存历史结果 (已停止): 返回最小视图
         return {
             "attack_id": attack_id,
-            "command": command.model_dump(mode='json'),
+            "command": None,
             "results": {nid: r.model_dump(mode='json') for nid, r in results.items()},
-            "node_count": len(results)
+            "node_count": len(results),
+            "stopped": True,
         }
 
     def get_all_active(self) -> List[Dict[str, Any]]:
