@@ -24,7 +24,7 @@ from app.models import (
 )
 from app.crypto import node_crypto
 from app.health import HealthMonitor
-from app.attacks import AttackRegistry
+from app.attacks import AttackRegistry, SafeAttackBase
 
 logger = structlog.get_logger(__name__)
 
