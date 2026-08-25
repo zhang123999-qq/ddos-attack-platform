@@ -138,6 +138,19 @@ def test_node_install_chmod_service_unit():
     print("PASS: node-install.sh chmod 640 service unit (F4)")
 
 
+def test_node_install_separates_cacert_per_source():
+    """v1.3.4 patch2: 节点下载逻辑 --cacert 应只用于 controller URL, GitHub 用系统 CA"""
+    p = SCRIPTS["node-install.sh"]
+    src = _read_text(p)
+    # 必须有 if [[ "$URL" == "$ENDPOINT/artifacts/$TARBALL" ]] 分支逻辑
+    assert re.search(r'if\s+\[\[\s+"\$URL"\s+==\s+"\$ENDPOINT/artifacts/\$TARBALL"\s+\]\]', src), \
+        "下载循环应按 URL 类型区分 --cacert 使用"
+    # 必须有 GitHub 分支不带 --cacert
+    assert re.search(r'curl\s+-Lfs\s+--max-time\s+300\s+-o\s+"/tmp/\$TARBALL"\s+"\$URL"', src), \
+        "GitHub 分支应不带 --cacert (用系统 CA)"
+    print("PASS: node-install.sh separates --cacert per source (v1.3.4 patch2)")
+
+
 def test_node_unit_uses_ddos_user_for_http():
     """F2: http 类型 attacker 节点用 ddos 用户;raw 类型仍 root (需 CAP_NET_RAW)"""
     p = SCRIPTS["node-install.sh"]
@@ -155,7 +168,9 @@ def main():
     for t in tests:
         t()
     print(f"\nALL {len(tests)} INSTALLER HARDENING TESTS PASSED")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())
