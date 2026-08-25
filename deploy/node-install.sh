@@ -180,13 +180,19 @@ log_info "Enroll OK (secret acquired over verified TLS)"
 log_step "Downloading binary (arch=$ARCH_TAG)"
 TARBALL="ddos-attacker-linux-${ARCH_TAG}.tar.gz"
 DL_OK=0
-# 下载必须与 enroll 同源信任: 自签部署下 ENDPOINT 证书由控制器 CA 签发,
-# 不带 --cacert 将证书验证失败 (GitHub 回退源不受影响, curl 对 https 自动忽略 --cacert 的额外约束)
+# 下载: $ENDPOINT 用自签 CA 校验, GitHub 走系统 CA
+# v1.3.4 修复: 之前 $TMP_CA 也用于 GitHub URL, 因是 leaf cert 而 curl 报 "is badly used here"
 for URL in "$ENDPOINT/artifacts/$TARBALL" \
            "https://github.com/${GITHUB_REPO}/releases/latest/download/$TARBALL" \
            ${RELEASE_VERSION:+"https://github.com/${GITHUB_REPO}/releases/download/${RELEASE_VERSION}/$TARBALL"}; do
     log_info "try: $URL"
-    if curl -Lfs --cacert "$TMP_CA" --max-time 300 -o "/tmp/$TARBALL" "$URL"; then DL_OK=1; break; fi
+    if [[ "$URL" == "$ENDPOINT/artifacts/$TARBALL" ]]; then
+        # 控制器内网源: 用 $TMP_CA 钉扎自签
+        if curl -Lfs --cacert "$TMP_CA" --max-time 300 -o "/tmp/$TARBALL" "$URL"; then DL_OK=1; break; fi
+    else
+        # GitHub 源: 用系统 CA
+        if curl -Lfs --max-time 300 -o "/tmp/$TARBALL" "$URL"; then DL_OK=1; break; fi
+    fi
 done
 [[ $DL_OK == 1 ]] || { log_error "All download sources failed"; exit 1; }
 
