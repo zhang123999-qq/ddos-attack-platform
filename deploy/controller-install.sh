@@ -229,7 +229,7 @@ do_update() {
     esac
     tarball="ddos-controller-linux-${tag}.tar.gz"
     tmp=$(mktemp -d)
-    if ! curl -Lfs --max-time 300 -o "$tmp/$tarball" \
+    if ! curl -Lfs --max-time 900 --retry 3 --retry-delay 5 --connect-timeout 15 -o "$tmp/$tarball" \
         "https://github.com/${GITHUB_REPO}/releases/latest/download/$tarball"; then
         echo "[ERROR] Download failed — check network / github reachability"
         rm -rf "$tmp"; return 1
