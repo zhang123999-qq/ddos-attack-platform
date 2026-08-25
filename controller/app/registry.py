@@ -264,6 +264,17 @@ class AttackExecutor:
         return self._emergency_stop.is_set()
 
     def collect_result(self, result: AttackResult):
+        # BUG-19 服务端兜底: 同一 (attack, node) 的后到结果若计数更小
+        # (节点 stop 竞态补发的空占位), 保留累计值更大的那份统计
+        existing = self._attack_results[result.attack_id].get(result.node_id)
+        if existing is not None and result.total_requests < existing.total_requests:
+            result = result.model_copy(update={
+                "total_requests": existing.total_requests,
+                "successful_requests": max(result.successful_requests, existing.successful_requests),
+                "failed_requests": max(result.failed_requests, existing.failed_requests),
+                "bytes_sent": max(result.bytes_sent, existing.bytes_sent),
+                "bytes_received": max(result.bytes_received, existing.bytes_received),
+            })
         self._attack_results[result.attack_id][result.node_id] = result
         task = asyncio.create_task(audit_logger.log_attack_result(result))
         self._bg_tasks.add(task)

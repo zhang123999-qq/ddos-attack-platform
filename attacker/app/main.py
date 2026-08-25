@@ -257,13 +257,24 @@ async def execute_attack(command: AttackCommand) -> AttackResult:
             result = await attack_instance.execute()
             await send_attack_result(result)
         except asyncio.CancelledError:
-            result = AttackResult(
+            # BUG-19: stop_attack() 先 instance.stop() 再 task.cancel()。
+            # 正常路径下 execute() 已返回带计数的 result 并上报;
+            # 这里只补发【execute 从未完成】时的占位结果, 且必须保留实例已累计的计数,
+            # 不能用全新空 result 覆盖控制器已有的统计 (原实现导致 total 归零)。
+            partial = attack_instance.result if attack_instance else None
+            cancelled_result = AttackResult(
                 attack_id=attack_id,
                 node_id=node_crypto.node_id,
                 status=AttackStatus.EMERGENCY_STOPPED,
-                errors=["Cancelled by controller"]
+                errors=["Cancelled by controller"],
             )
-            await send_attack_result(result)
+            if partial is not None:
+                cancelled_result.total_requests = partial.total_requests
+                cancelled_result.successful_requests = partial.successful_requests
+                cancelled_result.failed_requests = partial.failed_requests
+                cancelled_result.bytes_sent = partial.bytes_sent
+                cancelled_result.bytes_received = partial.bytes_received
+            await send_attack_result(cancelled_result)
         except Exception as e:
             logger.error("attack_execution_error", attack_id=attack_id, error=str(e))
             result = AttackResult(

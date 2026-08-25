@@ -248,7 +248,7 @@ WantedBy=multi-user.target
 UNIT
 
 # ---------- 管理命令 ----------
-cat > "$CTL_PATH" <<CTL
+cat > "$CTL_PATH" <<'CTL'
 #!/bin/bash
 # DDoS Attack Platform — 攻击节点快捷管理指令
 SERVICE="ddos-attacker"
@@ -256,31 +256,33 @@ ETC="/etc/ddos-attacker"
 
 show_status() {
     local state pid nid
-    state=\$(systemctl is-active "\$SERVICE" 2>/dev/null)
-    case "\$state" in
+    state=$(systemctl is-active "$SERVICE" 2>/dev/null)
+    case "$state" in
         active)
-            pid=\$(systemctl show "\$SERVICE" -p MainPID --value)
-            nid=\$(grep -E '^NODE_ID=' "$ETC/config.env" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-            echo "node : RUNNING (pid \$pid, id=\${nid:-?})"
-            echo "health: \$(curl -sf --max-time 2 http://127.0.0.1:\${NODE_PORT:-8080}/health >/dev/null 2>&1 && echo OK || echo FAIL)"
+            pid=$(systemctl show "$SERVICE" -p MainPID --value)
+            nid=$(grep -E '^NODE_ID=' "$ETC/config.env" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
+            echo "node : RUNNING (pid $pid, id=${nid:-?})"
+            local port
+            port=$(grep -E '^NODE_PORT=' "$ETC/config.env" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
+            echo "health: $(curl -sf --max-time 2 http://127.0.0.1:${port:-8080}/health >/dev/null 2>&1 && echo OK || echo FAIL)"
             ;;
-        *) echo "node : STOPPED (\$state)   start: sudo ddos-node restart" ;;
+        *) echo "node : STOPPED ($state)   start: sudo ddos-node restart" ;;
     esac
 }
 
-case "\${1:-}" in
+case "${1:-}" in
     ""|status)  show_status ;;
     s)          show_status ;;
-    start)      systemctl start "\$SERVICE";  show_status ;;
-    stop)       systemctl stop "\$SERVICE";   echo "node stopped" ;;
-    r|restart)  systemctl restart "\$SERVICE"; sleep 2; show_status ;;
-    logs)       journalctl -u "\$SERVICE" -f --no-pager -n 100 ;;
-    l)          journalctl -u "\$SERVICE" -n 50 --no-pager ;;
-    enable)     systemctl enable "\$SERVICE" ;;
-    disable)    systemctl disable "\$SERVICE" ;;
+    start)      systemctl start "$SERVICE";  show_status ;;
+    stop)       systemctl stop "$SERVICE";   echo "node stopped" ;;
+    r|restart)  systemctl restart "$SERVICE"; sleep 2; show_status ;;
+    logs)       journalctl -u "$SERVICE" -f --no-pager -n 100 ;;
+    l)          journalctl -u "$SERVICE" -n 50 --no-pager ;;
+    enable)     systemctl enable "$SERVICE" ;;
+    disable)    systemctl disable "$SERVICE" ;;
     update)     echo "[UPDATE] Re-running installer with current enrollment config..."
                 echo "[INFO] Node updates ship via controller enroll; re-run the WebUI-generated install command to upgrade." ;;
-    uninstall)  systemctl disable --now "\$SERVICE" 2>/dev/null; rm -f /etc/systemd/system/\${SERVICE}.service; systemctl daemon-reload; rm -rf /opt/ddos-attack-platform/attacker "$ETC" "/usr/local/bin/\$(basename "\$0")"; echo "uninstalled" ;;
+    uninstall)  systemctl disable --now "$SERVICE" 2>/dev/null; rm -f /etc/systemd/system/${SERVICE}.service; systemctl daemon-reload; rm -rf /opt/ddos-attack-platform/attacker "$ETC" "/usr/local/bin/$(basename "$0")"; echo "uninstalled" ;;
     *) echo "Usage: ddos-node [status|start|stop|restart|logs|update|uninstall]"
        echo "  (无参数=status, s=status, r=restart, l=最近日志)" ;;
 esac
