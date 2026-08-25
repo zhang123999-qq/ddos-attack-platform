@@ -39,7 +39,7 @@ orchestrator: Optional[Orchestrator] = None
 
 
 def _find_resource_path(env_key: str, *candidates: str) -> Optional[Path]:
-    """按 环境变量 → 候选路径 顺序定位安装脚本/制品目录 (开发仓与容器布局均兼容)"""
+    """�?环境变量 �?候选路�?顺序定位安装脚本/制品目录 (开发仓与容器布局均兼�?"""
     env_val = os.getenv(env_key)
     if env_val and Path(env_val).exists():
         return Path(env_val)
@@ -50,7 +50,7 @@ def _find_resource_path(env_key: str, *candidates: str) -> Optional[Path]:
     return None
 
 
-# 安装脚本与制品目录路径 (兼容: 本地仓库运行 / 容器内 /app 布局)
+# 安装脚本与制品目录路�?(兼容: 本地仓库运行 / 容器�?/app 布局)
 INSTALL_SCRIPT = _find_resource_path(
     "INSTALL_SCRIPT_PATH",
     Path(__file__).parent.parent.parent / "deploy" / "node-install.sh",  # 仓库: controller/app/../../deploy
@@ -58,7 +58,7 @@ INSTALL_SCRIPT = _find_resource_path(
 )
 ARTIFACTS_DIR = _find_resource_path(
     "ARTIFACTS_DIR",
-    Path(__file__).parent.parent.parent / "artifacts",  # 仓库根 ./artifacts
+    Path(__file__).parent.parent.parent / "artifacts",  # 仓库�?./artifacts
     "/app/artifacts",
 )
 
@@ -67,7 +67,7 @@ ARTIFACTS_DIR = _find_resource_path(
 async def lifespan(app: FastAPI):
     global orchestrator
 
-    # v1.3.0 方案A: 目标域名/IP 不做限制 — allowed_cidrs 仅作 Orchestrator 兼容参数, 不再拦截
+    # v1.3.0 方案A: 目标域名/IP 不做限制 �?allowed_cidrs 仅作 Orchestrator 兼容参数, 不再拦截
     allowed_cidrs: list = []
     global_rps = int(os.getenv("GLOBAL_MAX_RPS", "50000"))
     global_pps = int(os.getenv("GLOBAL_MAX_PPS", "100000"))
@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
     orchestrator = Orchestrator(allowed_cidrs, global_rps, global_pps, global_concurrent)
     await orchestrator.start()
 
-    # M-2 修复: 接线 audit → WebSocket 广播 (原先 broadcast_audit_event 为死代码)
+    # M-2 修复: 接线 audit �?WebSocket 广播 (原先 broadcast_audit_event 为死代码)
     audit_logger.set_broadcast_hook(broadcast_audit_event)
 
     async def broadcast_limits():
@@ -106,16 +106,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DDoS Attack Platform Controller",
     description="内网红方攻击编排控制中心 - 仅供授权教学演练使用",
-    version="1.2.5",
+    version="1.3.0",
     lifespan=lifespan,
     docs_url="/docs" if os.getenv("ENABLE_WEB_UI", "true").lower() == "true" else None,
     redoc_url=None
 )
 
-# 静态文件和模板 — CRIT-5 修复: 静态目录不存在时静默降级
+# 静态文件和模板 �?CRIT-5 修复: 静态目录不存在时静默降�?
 templates = None
 if os.getenv("ENABLE_WEB_UI", "true").lower() == "true":
-    # PyInstaller 冻结环境: 资源解包到 sys._MEIPASS/ui; 源码运行: controller/ui
+    # PyInstaller 冻结环境: 资源解包�?sys._MEIPASS/ui; 源码运行: controller/ui
     if getattr(sys, "frozen", False):
         ui_path = Path(getattr(sys, "_MEIPASS", ".")) / "ui"
     else:
@@ -134,7 +134,7 @@ def get_orchestrator() -> Orchestrator:
     return orchestrator
 
 
-# ========== 健康检查 ==========
+# ========== 健康检�?==========
 
 @app.get("/health")
 async def health():
@@ -160,11 +160,11 @@ async def register_node(
     auth_node: NodeInfo = Depends(verify_node_token),
     orch: Orchestrator = Depends(get_orchestrator)
 ):
-    # S-3 修复: 注册身份必须与已认证的 X-Node-ID 一致, 防止持任一节点凭证伪造他节点
+    # S-3 修复: 注册身份必须与已认证�?X-Node-ID 一�? 防止持任一节点凭证伪造他节点
     if node.node_id != auth_node.node_id:
         raise HTTPException(status_code=403, detail="Node ID mismatch with authenticated identity")
-    # BUG-18 防护: 节点上报回环地址时, 用 TLS 连接的真实来源 IP 替代,
-    # 否则控制器会把攻击指令发给自己的 8080 (node_commander 打环回)
+    # BUG-18 防护: 节点上报回环地址�? �?TLS 连接的真实来�?IP 替代,
+    # 否则控制器会把攻击指令发给自己的 8080 (node_commander 打环�?
     if node.ip in ("127.0.0.1", "::1", "0.0.0.0", ""):
         client_host = request.client.host if request.client else node.ip
         node = node.model_copy(update={"ip": client_host})
@@ -193,7 +193,7 @@ async def unregister_node(
     auth_node: NodeInfo = Depends(verify_node_token),
     orch: Orchestrator = Depends(get_orchestrator)
 ):
-    # 只允许节点注销自身; 管理全网注销属 Controller 管理面职责
+    # 只允许节点注销自身; 管理全网注销�?Controller 管理面职�?
     if node_id != auth_node.node_id:
         raise HTTPException(status_code=403, detail="Cannot unregister another node's identity")
     await orch.unregister_node(node_id)
@@ -267,9 +267,9 @@ async def launch_attack(
             "type": req.attack_type.value,
             "target": req.target.model_dump(mode='json'),
             "target_nodes": result.get("target_nodes", []),
-            # 进度条数据源: 前端以 started_at 计算已运行百分比
+            # 进度条数据源: 前端�?started_at 计算已运行百分比
             "started_at": datetime.now(timezone.utc).isoformat(),
-            # v1.3.0 C5/C1: 广播完整命令与权威状态 — 发射瞬间行数据即完整
+            # v1.3.0 C5/C1: 广播完整命令与权威状�?�?发射瞬间行数据即完整
             "command": command.model_dump(mode='json'),
             "status": "running",
         })
@@ -371,10 +371,10 @@ async def enroll_command(
     node_id: str = Query(..., min_length=2, max_length=63),
     auth: str = Depends(verify_controller_token),
 ):
-    """管理员生成节点一键安装命令 (WebUI「添加节点」数据源)
-    注意: 静态路由必须先于 /nodes/{node_id} 注册, 否则会被动态段吞掉"""
+    """管理员生成节点一键安装命�?(WebUI「添加节点」数据源)
+    注意: 静态路由必须先�?/nodes/{node_id} 注册, 否则会被动态段吞掉"""
     if not NODE_ID_RE.match(node_id):
-        raise HTTPException(status_code=400, detail="node_id 仅允许字母数字/-/_ , 2-63 字符")
+        raise HTTPException(status_code=400, detail="node_id 仅允许字母数�?-/_ , 2-63 字符")
 
     token = auth_config.generate_enroll_token(node_id)
     fingerprint = auth_config.get_tls_fingerprint().replace(":", "").lower()
@@ -392,7 +392,7 @@ async def enroll_command(
         f"--type {type}"
         + (f" --fingerprint {fingerprint}" if fingerprint else "")
     )
-    # 当前小时桶结束时刻 ≈ 有效期上限
+    # 当前小时桶结束时�?�?有效期上�?
     now = datetime.now(timezone.utc)
     expiry = now.replace(minute=59, second=59, microsecond=0) + timedelta(hours=1)
 
@@ -419,13 +419,13 @@ async def get_node(
     return APIResponse(success=True, data=node.model_dump(mode='json'))
 
 
-# ========== 一键安装引导 (面板生成命令, 节点粘贴自装自注册) ==========
+# ========== 一键安装引�?(面板生成命令, 节点粘贴自装自注�? ==========
 
 NODE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,62}$")
 
 
 def _public_base_url(request: Request) -> str:
-    """对外可访问的控制器基址 (scheme+host), 供安装命令/CA 分发拼接"""
+    """对外可访问的控制器基址 (scheme+host), 供安装命�?CA 分发拼接"""
     host = request.headers.get("host") or request.url.netloc
     return f"{request.url.scheme}://{host}"
 
@@ -441,7 +441,7 @@ async def _audit(event_type: str, actor: str, details: dict):
 
 @app.get("/install.sh", include_in_schema=False)
 async def serve_install_script(request: Request):
-    """分发节点安装器; __CONTROLLER_URL__ 占位符按请求地址替换, 命令可省略 -e 参数"""
+    """分发节点安装�? __CONTROLLER_URL__ 占位符按请求地址替换, 命令可省�?-e 参数"""
     if not INSTALL_SCRIPT:
         raise HTTPException(status_code=404, detail="install script not bundled")
     base = _public_base_url(request)
@@ -455,7 +455,7 @@ async def serve_install_script(request: Request):
 
 @app.get("/api/v1/controller-info", include_in_schema=False)
 async def controller_info(request: Request):
-    """公开元信息: TLS 指纹(供节点钉扎校验)、可用制品列表、安装脚本状态"""
+    """公开元信�? TLS 指纹(供节点钉扎校�?、可用制品列表、安装脚本状�?""
     artifacts = []
     if ARTIFACTS_DIR:
         artifacts = sorted(
@@ -480,9 +480,9 @@ class EnrollRequest(BaseModel):
 
 @app.post("/api/v1/nodes/enroll", include_in_schema=False)
 async def enroll_node(req: EnrollRequest, request: Request):
-    """节点自助接入 (无认证端点, 由无状态 enroll token 把关):
-    校验 HMAC(secret,'ddos-enroll:'+node_id+':'+小时桶) → 返回运行所需配置。
-    token 绑定 node_id 且约 1 小时自然过期, 服务端零存储。"""
+    """节点自助接入 (无认证端�? 由无状�?enroll token 把关):
+    校验 HMAC(secret,'ddos-enroll:'+node_id+':'+小时�? �?返回运行所需配置�?
+    token 绑定 node_id 且约 1 小时自然过期, 服务端零存储�?""
     if not NODE_ID_RE.match(req.node_id):
         raise HTTPException(status_code=400, detail="Invalid node_id format")
 
@@ -508,7 +508,7 @@ async def enroll_node(req: EnrollRequest, request: Request):
     }
 
 
-# CA 证书分发 (先于 /artifacts 静态挂载注册, 保证证书缺失于制品目录时仍可下载)
+# CA 证书分发 (先于 /artifacts 静态挂载注�? 保证证书缺失于制品目录时仍可下载)
 @app.get("/artifacts/ca-cert.pem", include_in_schema=False)
 async def serve_ca_cert():
     ca = Path(auth_config.ca_cert_path)
@@ -521,7 +521,7 @@ if ARTIFACTS_DIR:
     app.mount("/artifacts", StaticFiles(directory=str(ARTIFACTS_DIR)), name="artifacts")
 
 
-# ========== 限流状态 ==========
+# ========== 限流状�?==========
 
 @app.get("/api/v1/rate-limits", response_model=APIResponse)
 async def get_rate_limits(
@@ -606,11 +606,11 @@ if templates:
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
-        # starlette>=0.29 新签名: request 首参 + name/context 关键字 (旧二元组传法已移除)
-        # BUG-16 修复: 服务端注入 ui_token — 原先模板 {{ token }} 渲染为空,
-        # 前端退化为 localStorage/prompt, 用户无法手工得出 HMAC → 全部 API 401
-        # (表现为「生成安装命令失败」+ WebSocket 断开重连死循环)
-        # BUG-17: 端口不再硬编码 8443 — 从请求 Host 头解析, 支持自定义端口部署
+        # starlette>=0.29 新签�? request 首参 + name/context 关键�?(旧二元组传法已移�?
+        # BUG-16 修复: 服务端注�?ui_token �?原先模板 {{ token }} 渲染为空,
+        # 前端退化为 localStorage/prompt, 用户无法手工得出 HMAC �?全部 API 401
+        # (表现为「生成安装命令失败�? WebSocket 断开重连死循�?
+        # BUG-17: 端口不再硬编�?8443 �?从请�?Host 头解�? 支持自定义端口部�?
         host_header = request.headers.get("host") or request.url.netloc
         if ":" in host_header:
             hostname, port = host_header.rsplit(":", 1)
@@ -646,9 +646,9 @@ if __name__ == "__main__":
     import ssl
     import uvicorn
 
-    # HIGH-9 真实修复: uvicorn 无 ssl_context 参数, 使用 ssl_certfile/ssl_keyfile/
-    # ssl_ca_certs/ssl_cert_reqs 四参数启用 TLS (0.27+ 均支持)。
-    # 证书缺失时降级为明文 HTTP 并告警, 避免开发环境 crashloop。
+    # HIGH-9 真实修复: uvicorn �?ssl_context 参数, 使用 ssl_certfile/ssl_keyfile/
+    # ssl_ca_certs/ssl_cert_reqs 四参数启�?TLS (0.27+ 均支�?�?
+    # 证书缺失时降级为明文 HTTP 并告�? 避免开发环�?crashloop�?
     tls_kwargs: Dict[str, Any] = {}
     cert_file = os.getenv("TLS_CERT_FILE", "/certs/controller-cert.pem")
     key_file = os.getenv("TLS_KEY_FILE", "/certs/controller-key.pem")
@@ -658,14 +658,14 @@ if __name__ == "__main__":
             "ssl_certfile": cert_file,
             "ssl_keyfile": key_file,
             "ssl_ca_certs": ca_file if Path(ca_file).exists() else None,
-            # 默认仅服务端 TLS; TLS_VERIFY_CLIENT=true 时强制双向认证
+            # 默认仅服务端 TLS; TLS_VERIFY_CLIENT=true 时强制双向认�?
             "ssl_cert_reqs": ssl.CERT_REQUIRED if auth_config.verify_client else ssl.CERT_NONE,
         }
         logger.info("tls_enabled", verify_client=auth_config.verify_client)
     else:
         logger.warning("tls_disabled_missing_certs", cert=cert_file, key=key_file)
 
-    # PyInstaller 冻结环境下无 app 包可导入 — 直接传应用对象;
+    # PyInstaller 冻结环境下无 app 包可导入 �?直接传应用对�?
     # 源码运行保持字符串引用以启用 reload 语义
     app_target = "app.main:app"
     if getattr(sys, "frozen", False):

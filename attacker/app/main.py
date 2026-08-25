@@ -29,7 +29,7 @@ from app.attacks import AttackRegistry, SafeAttackBase
 logger = structlog.get_logger(__name__)
 
 
-# 全局状态
+# 全局状�?
 node_info: Optional[NodeInfo] = None
 health_monitor: Optional[HealthMonitor] = None
 http_client: Optional[httpx.AsyncClient] = None
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
         logger.error("cert_validation_failed")
         raise RuntimeError("Certificate validation failed")
     
-    # 初始化节点信息
+    # 初始化节点信�?
     base_info = NodeInfo(
         node_id=node_crypto.node_id,
         node_type=os.getenv("NODE_TYPE", "http"),
@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     health_monitor = HealthMonitor(base_info)
     node_info = health_monitor.get_node_info()
     
-    # HIGH-4 修复: 正确创建带 mTLS 的 httpx 客户端
+    # HIGH-4 修复: 正确创建�?mTLS �?httpx 客户�?
     ssl_context = node_crypto.create_ssl_context()
     transport = httpx.AsyncHTTPTransport(verify=ssl_context)
     http_client = httpx.AsyncClient(
@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
         limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
     )
     
-    # 注册到 Controller
+    # 注册�?Controller
     await register_with_controller()
     
     # 启动心跳任务
@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI):
     # 关闭
     _shutdown_event.set()
     
-    # 停止所有攻击
+    # 停止所有攻�?
     for attack_id, task in current_attacks.items():
         if not task.done():
             task.cancel()
@@ -115,8 +115,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="DDoS Attack Node",
-    description="分布式攻击节点 - 仅供授权内网教学演练使用",
-    version="1.2.5",
+    description="分布式攻击节�?- 仅供授权内网教学演练使用",
+    version="1.3.0",
     lifespan=lifespan
 )
 
@@ -127,8 +127,8 @@ async def verify_node_auth(
     x_node_id: str = Header(..., alias="X-Node-ID"),
     x_node_token: str = Header(..., alias="X-Node-Token")
 ):
-    """验证 Controller 下发指令的认证"""
-    # 双向认证：mTLS 已在传输层验证，这里再验证 Token
+    """验证 Controller 下发指令的认�?""
+    # 双向认证：mTLS 已在传输层验证，这里再验�?Token
     if x_node_id != node_crypto.node_id:
         raise HTTPException(status_code=401, detail="Node ID mismatch")
     
@@ -142,7 +142,7 @@ async def verify_node_auth(
 # ========== Controller 通信 ==========
 
 async def register_with_controller():
-    """向 Controller 注册节点 — 带退避重试 (P2: 原实现失败即崩溃退出)"""
+    """�?Controller 注册节点 �?带退避重�?(P2: 原实现失败即崩溃退�?"""
     url = f"{node_crypto.controller_url}/api/v1/nodes/register"
     headers = node_crypto.get_auth_headers()
 
@@ -162,14 +162,14 @@ async def register_with_controller():
                            node_id=node_crypto.node_id, attempt=attempt,
                            max_attempts=max_attempts, error=str(e))
             if attempt < max_attempts:
-                await asyncio.sleep(retry_delay * attempt)  # 线性退避
+                await asyncio.sleep(retry_delay * attempt)  # 线性退�?
 
     logger.error("controller_register_failed", error=str(last_error))
     raise RuntimeError(f"Cannot register with controller after {max_attempts} attempts: {last_error}")
 
 
 async def unregister_from_controller():
-    """从 Controller 注销"""
+    """�?Controller 注销"""
     if not http_client:
         return
     url = f"{node_crypto.controller_url}/api/v1/nodes/{node_crypto.node_id}/unregister"
@@ -250,7 +250,7 @@ async def execute_attack(command: AttackCommand) -> AttackResult:
     
     attack_instances[attack_id] = attack_instance
     health_monitor.add_attack(attack_id)
-    # v1.3.0 C3: 注入周期进度上报回调 — 运行期间每 2s 快照上报控制器
+    # v1.3.0 C3: 注入周期进度上报回调 �?运行期间�?2s 快照上报控制�?
     attack_instance._progress_callback = send_attack_result
     
     # 创建执行任务
@@ -259,10 +259,10 @@ async def execute_attack(command: AttackCommand) -> AttackResult:
             result = await attack_instance.execute()
             await send_attack_result(result)
         except asyncio.CancelledError:
-            # BUG-19: stop_attack() 先 instance.stop() 再 task.cancel()。
-            # 正常路径下 execute() 已返回带计数的 result 并上报;
-            # 这里只补发【execute 从未完成】时的占位结果, 且必须保留实例已累计的计数,
-            # 不能用全新空 result 覆盖控制器已有的统计 (原实现导致 total 归零)。
+            # BUG-19: stop_attack() �?instance.stop() �?task.cancel()�?
+            # 正常路径�?execute() 已返回带计数�?result 并上�?
+            # 这里只补发【execute 从未完成】时的占位结�? 且必须保留实例已累计的计�?
+            # 不能用全新空 result 覆盖控制器已有的统计 (原实现导�?total 归零)�?
             partial = attack_instance.result if attack_instance else None
             cancelled_result = AttackResult(
                 attack_id=attack_id,
@@ -317,13 +317,13 @@ async def stop_attack(attack_id: str, reason: str = "manual"):
 
 
 async def emergency_stop(command: EmergencyStopCommand):
-    """紧急熔断 - 停止所有攻击"""
+    """紧急熔�?- 停止所有攻�?""
     logger.critical("emergency_stop_received", reason=command.reason, by=command.issued_by)
     
-    # 广播到所有攻击基类
+    # 广播到所有攻击基�?
     SafeAttackBase.set_emergency_stop(True)
     
-    # 停止所有当前攻击
+    # 停止所有当前攻�?
     stop_tasks = []
     for attack_id, instance in attack_instances.items():
         stop_tasks.append(instance.stop(f"emergency: {command.reason}"))
@@ -352,7 +352,7 @@ async def health():
 
 @app.get("/metrics")
 async def metrics(request: Request):
-    """Prometheus 指标 — 设置 METRICS_TOKEN 环境变量后启用 Bearer 认证"""
+    """Prometheus 指标 �?设置 METRICS_TOKEN 环境变量后启�?Bearer 认证"""
     expected_token = os.getenv("METRICS_TOKEN", "")
     if expected_token:
         auth_header = request.headers.get("Authorization", "")
@@ -391,14 +391,14 @@ async def emergency_stop_endpoint(
     command: EmergencyStopCommand,
     auth: bool = Depends(verify_node_auth)
 ):
-    """Controller 下发紧急熔断"""
+    """Controller 下发紧急熔�?""
     await emergency_stop(command)
     return {"success": True, "message": "Emergency stop executed"}
 
 
 @app.post("/api/v1/emergency_stop/reset", response_model=dict)
 async def emergency_reset_endpoint(auth: bool = Depends(verify_node_auth)):
-    """P1-1 修复: Controller 广播复位 — 清除全局熔断, 节点恢复可接受攻击指令"""
+    """P1-1 修复: Controller 广播复位 �?清除全局熔断, 节点恢复可接受攻击指�?""
     SafeAttackBase.set_emergency_stop(False)
     logger.info("emergency_stop_reset_received", node_id=node_crypto.node_id)
     return {"success": True, "message": "Emergency stop reset"}
@@ -406,7 +406,7 @@ async def emergency_reset_endpoint(auth: bool = Depends(verify_node_auth)):
 
 @app.get("/api/v1/attacks", response_model=dict)
 async def list_current_attacks(auth: bool = Depends(verify_node_auth)):
-    """查询当前正在进行的攻击"""
+    """查询当前正在进行的攻�?""
     attacks = []
     for attack_id, instance in attack_instances.items():
         attacks.append({
@@ -438,7 +438,7 @@ if __name__ == "__main__":
     
     setup_signals()
 
-    # PyInstaller 冻结环境下无 app 包可导入 — 直接传应用对象
+    # PyInstaller 冻结环境下无 app 包可导入 �?直接传应用对�?
     app_target = "app.main:app"
     if getattr(sys, "frozen", False):
         app_target = app
