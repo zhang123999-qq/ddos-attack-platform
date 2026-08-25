@@ -138,7 +138,7 @@ def get_orchestrator() -> Orchestrator:
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "service": "ddos-controller", "version": "1.1.0", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "healthy", "service": "ddos-controller", "version": app.version, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/ready")
