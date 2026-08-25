@@ -10,6 +10,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
+# 平台版本单一事实源 — 发布时只改这一处 (health/controller-info/FastAPI 均引用)
+PLATFORM_VERSION = "1.3.3"
+
 from fastapi import FastAPI, Request, Depends, HTTPException, Query, BackgroundTasks, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -50,11 +53,13 @@ def _find_resource_path(env_key: str, *candidates: str) -> Optional[Path]:
     return None
 
 
-# 安装脚本与制品目录路径 (兼容: 本地仓库运行 / 容器内 /app 布局)
+# 安装脚本与制品目录路径 (兼容: 本地仓库运行 / 容器内 /app 布局 / PyInstaller 部署布局)
 INSTALL_SCRIPT = _find_resource_path(
     "INSTALL_SCRIPT_PATH",
     Path(__file__).parent.parent.parent / "deploy" / "node-install.sh",  # 仓库: controller/app/../../deploy
     "/app/deploy/node-install.sh",
+    # BUG-5: 一键安装器将 node-install.sh 放在二进制同目录 — frozen 下 sys.executable 即安装目录
+    Path(sys.executable or "").parent / "node-install.sh",
 )
 ARTIFACTS_DIR = _find_resource_path(
     "ARTIFACTS_DIR",
@@ -106,7 +111,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DDoS Attack Platform Controller",
     description="内网红方攻击编排控制中心 - 仅供授权教学演练使用",
-    version="1.3.0",
+    version=PLATFORM_VERSION,
     lifespan=lifespan,
     docs_url="/docs" if os.getenv("ENABLE_WEB_UI", "true").lower() == "true" else None,
     redoc_url=None
@@ -332,6 +337,12 @@ async def get_attack(
     auth: str = Depends(verify_controller_token),
     orch: Orchestrator = Depends(get_orchestrator)
 ):
+    # OBS-8: 动态段与动作保留字冲突 — GET /api/v1/attacks/launch 原被吞成 404 "Attack not found"
+    if attack_id in ("launch", "stop"):
+        raise HTTPException(
+            status_code=405,
+            detail=f"'{attack_id}' is an action path, not an attack id (use POST /api/v1/attacks/{attack_id})"
+        )
     status = orch.get_attack_status(attack_id)
     if not status:
         raise HTTPException(status_code=404, detail="Attack not found")
@@ -412,8 +423,8 @@ async def get_node(
     auth: str = Depends(verify_controller_token),
     orch: Orchestrator = Depends(get_orchestrator)
 ):
-    node = orch.get_nodes()
-    node = next((n for n in node if n.node_id == node_id), None)
+    # BUG-6: 读全量节点字典 — offline 节点详情同样可查 (原先只查 online 集, 离线即 404)
+    node = orch.get_node_by_id(node_id)
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     return APIResponse(success=True, data=node.model_dump(mode='json'))

@@ -176,6 +176,16 @@ class SafeAttackBase(ABC):
         if len(self.result.errors) < self.ERROR_LIST_MAX:
             self.result.errors.append(msg)
 
+    ERROR_BACKOFF_CAP = 0.25  # 连续错误退避上限 (秒)
+
+    @staticmethod
+    def _error_backoff(consecutive_errors: int) -> float:
+        """BUG-2: 连续错误指数退避 — 抑制 closed-port 等错误风暴对事件循环的冲击。
+        0 → 0ms; 1 → 10ms; 2 → 20ms; ... 封顶 250ms。成功后由调用方清零。"""
+        if consecutive_errors <= 0:
+            return 0.0
+        return min(0.01 * (2 ** min(consecutive_errors, 5)), SafeAttackBase.ERROR_BACKOFF_CAP)
+
     async def _progress_reporter(self):
         """C3: 每 2s 上报当前计数快照 (status=running), 让控制器/UI 实时可见"""
         from app.models import AttackResult as _AR  # 局部引用避免循环导入风险

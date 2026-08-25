@@ -72,8 +72,9 @@ class HealthMonitor:
                     pass
         return supported
 
-    async def collect_heartbeat(self) -> NodeHeartbeat:
-        """异步心跳采集 — P2: interval=None 非阻塞 (自上次调用以来的均值), 不再卡 100ms 事件循环"""
+    def collect_heartbeat(self) -> NodeHeartbeat:
+        """心跳采集 (同步) — BUG-2: 心跳已线程化, 采集必须为纯同步实现。
+        cpu_percent(interval=None) 非阻塞取自上次调用以来的均值。"""
         cpu_percent = psutil.cpu_percent(interval=None)
         mem = psutil.virtual_memory()
         memory_percent = mem.percent

@@ -127,7 +127,8 @@ class HTTPFloodAttack(SafeAttackBase):
         """单个工作协程 - 持续发送请求直到停止"""
         method = self.params.method.upper()
         body = self.params.body
-        
+        consec_errors = 0  # BUG-2: 连续错误计数 (成功清零), 驱动指数退避
+
         while not self._check_stop():
             try:
                 await self.rate_limiter.wait_for_token()
@@ -154,6 +155,7 @@ class HTTPFloodAttack(SafeAttackBase):
                 self.result.successful_requests += 1
                 # 发送 = 固定请求开销; 接收 = 实际读取的响应体字节 (含 chunked)
                 self._update_bytes(sent=self._request_overhead, received=len(data))
+                consec_errors = 0
 
             except asyncio.CancelledError:
                 break
@@ -162,11 +164,15 @@ class HTTPFloodAttack(SafeAttackBase):
                 self.result.failed_requests += 1
                 self._record_error(f"ClientError: {e}")
                 self._tally_error(e)
+                consec_errors += 1
+                await asyncio.sleep(self._error_backoff(consec_errors))
             except Exception as e:
                 self.result.total_requests += 1
                 self.result.failed_requests += 1
                 self._record_error(f"Error: {e}")
                 self._tally_error(e)
+                consec_errors += 1
+                await asyncio.sleep(self._error_backoff(consec_errors))
 
     def _tally_error(self, e: Exception):
         """C6: 错误聚合计数 — UI 显示 'Connection refused ×N' 摘要"""

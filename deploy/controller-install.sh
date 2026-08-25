@@ -153,6 +153,19 @@ if [[ -z "${DOCKER_MODE:-}" ]]; then
     rm -f "/tmp/$TARBALL"
 fi
 
+# ---------- 分发物: 节点安装脚本 (BUG-5: 二进制包不含源码树, /install.sh 端点需要它) ----------
+# 控制器按 INSTALL_SCRIPT_PATH env → 仓库 deploy/ → /app/deploy/ → 二进制同目录 顺序查找
+if [[ -z "${DOCKER_MODE:-}" ]]; then
+    NODE_SCRIPT_DST="$INSTALL_DIR/node-install.sh"
+    if curl -Lfs --max-time 60 --retry 2 -o "$NODE_SCRIPT_DST" \
+        "https://raw.githubusercontent.com/${GITHUB_REPO}/master/deploy/node-install.sh"; then
+        chmod +x "$NODE_SCRIPT_DST"
+        echo "[OK] node-install.sh staged — WebUI /install.sh 端点可用"
+    else
+        echo "[WARN] node-install.sh fetch failed — WebUI 生成的节点命令将回退 GitHub 直连 (可忽略)"
+    fi
+fi
+
 # ---------- 写配置 ----------
 cat > "$ETC_DIR/config.env" <<ENV
 CONTROLLER_HOST=0.0.0.0
@@ -210,6 +223,17 @@ INSTALL_DIR="/opt/ddos-attack-platform/controller"
 ETC_DIR="/etc/ddos-controller"
 SERVICE_NAME="ddos-controller"
 GITHUB_REPO="zhang123999-qq/ddos-attack-platform"
+
+# BUG-1: 变更类操作需要 root — root 直行; sudo 免密缓存命中即代执行;
+# 否则明确提示正确命令 (原实现直接 systemctl 报 Access denied)
+SUDO=""
+[[ $EUID -ne 0 ]] && SUDO="sudo"
+require_root() {
+    if [[ $EUID -ne 0 ]] && ! sudo -n true 2>/dev/null; then
+        echo "[AUTH] 此操作需要 root 权限, 请执行: sudo ddos-controller ${1:-<op>}" >&2
+        exit 1
+    fi
+}
 
 get_port() {
     local port
@@ -288,13 +312,24 @@ show_status() {
 case "${1:-}" in
     ""|status)  show_status ;;                       # 简化: 无参数直接看状态
     s)          show_status ;;
-    start)      systemctl start "$SERVICE_NAME";  show_status ;;
-    stop)       systemctl stop "$SERVICE_NAME";   echo "controller stopped" ;;
-    r|restart)  systemctl restart "$SERVICE_NAME"; sleep 2; show_status ;;
+    start)      require_root "$1";  $SUDO systemctl start "$SERVICE_NAME";  show_status ;;
+    stop)       require_root "$1";  $SUDO systemctl stop "$SERVICE_NAME";   echo "controller stopped" ;;
+    r|restart)  require_root "$1";  $SUDO systemctl restart "$SERVICE_NAME"; sleep 2; show_status ;;
     logs)       journalctl -u "$SERVICE_NAME" -f --no-pager -n 100 ;;
     l)          journalctl -u "$SERVICE_NAME" -n 50 --no-pager ;;   # 最近日志 (非跟随)
-    update|u)   do_update ;;
-    uninstall)  systemctl disable --now "$SERVICE_NAME" 2>/dev/null; rm -f /etc/systemd/system/${SERVICE_NAME}.service; systemctl daemon-reload; rm -rf "$INSTALL_DIR" "$ETC_DIR" "/usr/local/bin/$(basename "$0")"; echo "uninstalled" ;;
+    update|u)   require_root "$1";  $SUDO bash "$0" --do-update-internal ;;
+    uninstall)  require_root "$1"
+                if [[ $EUID -ne 0 ]]; then
+                    $SUDO systemctl disable --now "$SERVICE_NAME" 2>/dev/null
+                    $SUDO rm -f /etc/systemd/system/${SERVICE_NAME}.service; $SUDO systemctl daemon-reload
+                    $SUDO rm -rf "$INSTALL_DIR" "$ETC_DIR" "/usr/local/bin/$(basename "$0")"
+                else
+                    systemctl disable --now "$SERVICE_NAME" 2>/dev/null
+                    rm -f /etc/systemd/system/${SERVICE_NAME}.service; systemctl daemon-reload
+                    rm -rf "$INSTALL_DIR" "$ETC_DIR" "/usr/local/bin/$(basename "$0")"
+                fi
+                echo "uninstalled" ;;
+    --do-update-internal) do_update ;;
     *) echo "Usage: ddos-controller [status|start|stop|restart|logs|update|uninstall]"
        echo "  (无参数=status, s=status, r=restart, l=最近日志, u=update)" ;;
 esac

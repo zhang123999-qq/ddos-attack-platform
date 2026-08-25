@@ -170,6 +170,8 @@ GET /api/v1/nodes/{node_id}
 Authorization: Bearer <TOKEN>
 ```
 
+> v1.3.3: 离线 (OFFLINE) 节点的详情同样可查——仅当节点 ID 从未注册过时才返回 404。
+
 ---
 
 ### 攻击编排
@@ -180,6 +182,8 @@ POST /api/v1/attacks/launch
 Authorization: Bearer <TOKEN>
 Content-Type: application/json
 ```
+
+> v1.3.3: `launch`/`stop` 为动作保留字——对它们发起 GET 请求返回 **405**（附正确用法提示），而非误导性的 404 "Attack not found"。
 
 **请求体完整参数**：
 
@@ -393,6 +397,8 @@ Content-Type: application/json
 > ⚠️ **overrides 必填**：内置场景 YAML 的目标 IP 均为 `TARGET_IP_PLACEHOLDER` 模板，
 > 服务端在启动前同步校验——若 overrides 未提供 `target.ip`（或值非法），
 > 接口直接返回 **400** 与具体缺失步骤说明，不会出现 200 后静默不执行的情况。
+> 注意：**完全未携带请求体**时由 FastAPI 参数校验拦截，返回 **422**（`Field required`）；
+> 只有请求体存在但 `overrides.target.ip` 缺失/非法时才走业务校验返回 **400**。
 
 **请求体**：
 ```json
@@ -736,6 +742,7 @@ wscat -c "$CONTROLLER_URL/ws/metrics?token=$TOKEN&channels=nodes,attacks,metrics
 
 | 版本 | 日期 | 变更摘要 |
 |------|------|----------|
+| v1.3.3 | 2025-08-25 | **BUG-2**: 节点心跳移入独立 OS 线程（攻击错误风暴不再延迟心跳）+ HTTP flood 连续错误指数退避（封顶 250ms）；**BUG-4**: 心跳记账改用服务器时钟，未知节点心跳记 warning 不再静默；节点侧每 60s 幂等重发 register + 收到 401/403/404 立即重注册（控制器重启后节点自愈回联 ≤60s）；**BUG-1**: `ddos-controller`/`ddos-node` wrapper 变更类操作提权门卫（root 直行 → sudo -n → 明确提示）；**BUG-5**: 二进制安装器随附 node-install.sh 到安装目录（/install.sh 端点可用），INSTALL_SCRIPT 候选新增二进制同目录；**BUG-6**: GET /nodes/{id} 读全量字典，离线节点详情可查（仅未注册过返回 404）；**OBS-7**: structlog 过滤级别接通 LOG_LEVEL env；**OBS-8**: launch/stop 保留字 GET 返回 405 + 文档 400/422 边界澄清；audit writer 跨事件循环复用自旋修复（Queue 每次 start 重建）；PLATFORM_VERSION 单一事实源 |
 | v1.3.2 | 2025-08-25 | 目标支持域名/IP（TargetSpec RFC1123 校验，scapy 类攻击 getaddrinfo 自动解析）；**目标白名单技术强制移除**（仅保留场景占位符拒绝）；攻击列表/详情新增权威 `status/started_at/finished_at/stop_reason`，返回运行中+60min TTL 内已结束攻击；节点每 2s 周期上报进度快照（单调合并）；`metrics.error_counts` 错误聚合摘要（样本上限 50）；WebSocket attack_start 携带完整 command |
 | v1.2 | 2024-12-20 | 新增一键安装引导端点组：enroll-command / nodes/enroll / controller-info / install.sh / artifacts 分发；无状态 enroll token 机制说明 |
 | v1.1 | 2024-12-19 | 新增 Node API 文档、完善错误码、补充 Python/cURL 示例、修复 datetime 序列化说明；rate-limits 响应改为 quotas 数组（按 attack_id+node_id 记账）；场景运行 overrides 必填（400 校验）；新增 emergency_stop/reset 端点；节点注册/心跳/注销/结果上报身份一致性校验 (403)；TLS_VERIFY_CLIENT 开关说明 |

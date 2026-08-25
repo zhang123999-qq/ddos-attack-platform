@@ -49,10 +49,18 @@ class NodeRegistry:
         return node
 
     async def heartbeat(self, hb: NodeHeartbeat):
+        """BUG-4 修复: 心跳记账改用【服务器时钟】(节点时钟不可信, 原实现存 hb.timestamp
+        会因时钟偏差触发 stale 误判); 未知节点不再静默吞掉 — 记 warning 供运维发现
+        "控制器重启后节点未重注册"类问题 (自愈由节点侧周期性幂等 re-register 完成)。"""
         async with self._lock:
-            if hb.node_id in self._nodes:
-                self._nodes[hb.node_id].last_heartbeat = hb.timestamp
-                self._nodes[hb.node_id].status = hb.status
+            node = self._nodes.get(hb.node_id)
+            if node is not None:
+                node.last_heartbeat = datetime.now(timezone.utc)
+                node.status = hb.status
+            else:
+                logger.warning("heartbeat_from_unknown_node",
+                               node_id=hb.node_id,
+                               hint="controller restarted? waiting for node periodic re-register")
             self._heartbeats[hb.node_id] = hb
 
     async def unregister(self, node_id: str):

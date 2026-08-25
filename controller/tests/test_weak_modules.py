@@ -4,7 +4,8 @@ import asyncio
 import os
 import sys
 
-os.environ.setdefault("SHARED_SECRET", "weakmod-test-secret-32chars-abc123")
+# v1.3.3: 环境变量必须在 import app.* 之前设置 (auth_config 单例导入时读取)
+os.environ.setdefault("SHARED_SECRET", "test-secret-32chars-abcdef1234567890")
 os.environ.setdefault("LOG_LEVEL", "error")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

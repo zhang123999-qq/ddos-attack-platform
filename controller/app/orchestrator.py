@@ -67,6 +67,11 @@ class Orchestrator:
         await self.node_registry.heartbeat(hb)
         await audit_logger.log_node_heartbeat(hb.node_id, hb.cpu_percent, hb.memory_percent, hb.network_mbps)
 
+    def get_node_by_id(self, node_id: str) -> Optional[NodeInfo]:
+        """BUG-6 修复: 详情查询读【全量】节点字典 — offline 条目同样可见。
+        (原实现遍历 get_all_online(), 节点离线后详情接口 404)"""
+        return self.node_registry.get_node(node_id)
+
     async def unregister_node(self, node_id: str):
         await self.node_registry.unregister(node_id)
 

@@ -4,6 +4,7 @@ import os
 import sys
 import asyncio
 import hmac
+import threading
 import uuid
 import signal
 import socket
@@ -16,6 +17,9 @@ from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.responses import JSONResponse
 import httpx
+
+# 平台版本单一事实源 — 发布时只改这一处
+PLATFORM_VERSION = "1.3.3"
 import structlog
 
 from app.models import (
@@ -36,6 +40,10 @@ http_client: Optional[httpx.AsyncClient] = None
 current_attacks: Dict[str, asyncio.Task] = {}
 attack_instances: Dict[str, Any] = {}  # attack_id -> attack_instance
 _shutdown_event = asyncio.Event()
+
+# BUG-2: 心跳线程化 — 独立 OS 线程 + threading.Event (不可跨线程复用 asyncio.Event)
+_hb_thread: Optional[threading.Thread] = None
+_hb_stop = threading.Event()
 
 
 @asynccontextmanager
@@ -77,9 +85,12 @@ async def lifespan(app: FastAPI):
     
     # 注册到 Controller
     await register_with_controller()
-    
-    # 启动心跳任务
-    heartbeat_task = asyncio.create_task(heartbeat_loop())
+
+    # BUG-2: 心跳移入独立 OS 线程 — 大参数攻击饱和事件循环时心跳仍准点
+    _hb_stop.clear()
+    global _hb_thread
+    _hb_thread = threading.Thread(target=_heartbeat_thread_main, name="ddos-heartbeat", daemon=True)
+    _hb_thread.start()
     
     logger.info("attacker_node_started", node_id=node_crypto.node_id, type=node_info.node_type)
     
@@ -97,12 +108,11 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 pass
     
-    # 停止心跳
-    heartbeat_task.cancel()
-    try:
-        await heartbeat_task
-    except asyncio.CancelledError:
-        pass
+    # 停止心跳线程 (threading.Event 跨线程安全; join 有界防卡退出)
+    _hb_stop.set()
+    if _hb_thread is not None:
+        _hb_thread.join(timeout=5)
+        _hb_thread = None
     
     # 注销
     await unregister_from_controller()
@@ -116,7 +126,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DDoS Attack Node",
     description="分布式攻击节点 - 仅供授权内网教学演练使用",
-    version="1.3.0",
+    version=PLATFORM_VERSION,
     lifespan=lifespan
 )
 
@@ -182,20 +192,75 @@ async def unregister_from_controller():
         logger.warning("controller_unregister_failed", error=str(e))
 
 
-async def send_heartbeat():
-    """发送心跳到 Controller"""
-    if not http_client or not health_monitor:
-        return
-    
-    hb = await health_monitor.collect_heartbeat()
-    url = f"{node_crypto.controller_url}/api/v1/nodes/heartbeat"
-    headers = node_crypto.get_auth_headers()
-    
+def _register_sync(client: "httpx.Client") -> bool:
+    """BUG-4 兜底: 心跳线程内的同步全量重注册 (幂等)。
+    控制器重启会清空节点表, 节点侧周期性重发 register 保证 ≤一个周期内自愈。"""
     try:
-        resp = await http_client.post(url, json=hb.model_dump(mode='json'), headers=headers)
+        if health_monitor is None:
+            return False
+        resp = client.post(
+            f"{node_crypto.controller_url}/api/v1/nodes/register",
+            json=health_monitor.get_node_info().model_dump(mode='json'),
+            headers=node_crypto.get_auth_headers(),
+        )
         resp.raise_for_status()
+        logger.info("controller_registered_sync")
+        return True
     except Exception as e:
-        logger.warning("heartbeat_failed", error=str(e))
+        logger.warning("controller_register_sync_failed", error=str(e))
+        return False
+
+
+def _heartbeat_thread_main():
+    """BUG-2: 心跳主循环运行在独立 OS 线程。
+    - 不与攻击 worker 共享 asyncio 事件循环 → 错误风暴不再延迟心跳
+    - 独立同步 httpx.Client (AsyncClient 非线程安全, 不可跨线程复用)
+    - BUG-4: 收到 401/403/404 (控制器不认识本节点) 时立即全量重注册;
+      另按 REGISTER_REFRESH_INTERVAL 周期性幂等重注册兜底控制器重启场景"""
+    interval = max(3, int(os.getenv("HEARTBEAT_INTERVAL", "10")))
+    refresh_period = max(interval, int(os.getenv("REGISTER_REFRESH_INTERVAL", "60")))
+    refresh_every_beats = max(1, refresh_period // interval)
+
+    try:
+        ssl_ctx = node_crypto.create_ssl_context()
+    except SystemExit:
+        logger.error("heartbeat_thread_abort_tls_context")
+        return
+    client = httpx.Client(verify=ssl_ctx, timeout=httpx.Timeout(10.0, connect=5.0))
+    beats_since_register = 0
+
+    try:
+        while not _hb_stop.is_set():
+            try:
+                if health_monitor is None or node_info is None:
+                    break
+                hb = health_monitor.collect_heartbeat()
+                resp = client.post(
+                    f"{node_crypto.controller_url}/api/v1/nodes/heartbeat",
+                    json=hb.model_dump(mode='json'),
+                    headers=node_crypto.get_auth_headers(),
+                )
+                if resp.status_code == 200:
+                    beats_since_register += 1
+                else:
+                    logger.warning("heartbeat_thread_non_ok", status=resp.status_code)
+                    if resp.status_code in (401, 403, 404):
+                        # 身份仍有效但控制器已失忆 → 立刻重建注册
+                        if _register_sync(client):
+                            beats_since_register = 0
+            except Exception as e:
+                logger.warning("heartbeat_thread_failed", error=str(e))
+
+            if _hb_stop.is_set():
+                break
+            # 周期性幂等重注册: 覆盖"控制器重启但未拒绝过心跳"的窗口
+            if beats_since_register >= refresh_every_beats:
+                _register_sync(client)
+                beats_since_register = 0
+
+            _hb_stop.wait(interval)
+    finally:
+        client.close()
 
 
 async def send_attack_result(result: AttackResult):
@@ -214,22 +279,6 @@ async def send_attack_result(result: AttackResult):
 
 
 # ========== 核心逻辑 ==========
-
-async def heartbeat_loop():
-    """心跳循环"""
-    interval = int(os.getenv("HEARTBEAT_INTERVAL", "10"))
-    
-    while not _shutdown_event.is_set():
-        try:
-            await send_heartbeat()
-        except Exception as e:
-            logger.error("heartbeat_loop_error", error=str(e))
-        
-        try:
-            await asyncio.wait_for(_shutdown_event.wait(), timeout=interval)
-        except asyncio.TimeoutError:
-            continue
-
 
 async def execute_attack(command: AttackCommand) -> AttackResult:
     """执行攻击指令"""

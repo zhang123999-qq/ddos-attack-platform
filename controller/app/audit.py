@@ -89,6 +89,15 @@ class AuditLogger:
 
     async def start(self):
         self._running = True
+        # v1.3.3: Queue 在 __init__ 时绑定首个事件循环 — 二次 lifespan (测试场景)
+        # 会命中 "bound to a different event loop"。每次 start 重建队列, writer 归零。
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
+        if self._writer_task and not self._writer_task.done():
+            self._writer_task.cancel()
+            try:
+                await self._writer_task
+            except (asyncio.CancelledError, RuntimeError):
+                pass
         self._writer_task = asyncio.create_task(self._writer_loop())
         if self.file_enabled:
             # C-3/M-4 修复: 启动按天保留清理任务 (仅落盘模式需要)
@@ -116,13 +125,20 @@ class AuditLogger:
         await asyncio.sleep(0.5)
 
         # 3. 发送哨兵停止 writer
+        # v1.3.3: Queue 绑定创建时的旧事件循环 — 跨循环复用 (测试/多次 lifespan) 时
+        # put/get 会抛 "bound to a different event loop"。此时直接取消 writer,
+        # 不再尝试通过队列发哨兵 (队列本身已不可用)。
         if self._writer_task:
             self._running = False
-            await self._queue.put(None)
             try:
+                self._queue.put_nowait(None)
                 await asyncio.wait_for(self._writer_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                pass
+            except (asyncio.TimeoutError, RuntimeError):
+                self._writer_task.cancel()
+                try:
+                    await self._writer_task
+                except (asyncio.CancelledError, RuntimeError):
+                    pass
         for t in (self._retention_task,):
             if t:
                 t.cancel()
@@ -136,32 +152,33 @@ class AuditLogger:
             self.file_handler.close()
 
     async def _writer_loop(self):
-        while self._running:
+        # v1.3.3: 捕获范围收窄到 QueueEmpty — 修复跨事件循环复用时
+        # "Queue is bound to a different event loop" 异常被 except Exception 吞掉后
+        # while self._running 立即自旋、打满 stdout 并饿死事件循环的问题。
+        while True:
             try:
                 event = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-                if event is None:
-                    break
-                # 内存环形缓冲 (会话级, 不落盘)
-                self.memory_buffer.append(event.model_dump(mode='json'))
-                if len(self.memory_buffer) > self.MEMORY_BUFFER_MAX:
-                    del self.memory_buffer[:len(self.memory_buffer) - self.MEMORY_BUFFER_MAX]
-                # v1.3.0 方案B: 仅落盘模式写文件
-                if self.file_enabled:
-                    self._write(event)
-                # audit 频道实时推送 (钩子异常不影响主流程)
-                if self._broadcast_hook is not None:
-                    try:
-                        import asyncio as _aio
-                        payload = event.model_dump(mode='json')
-                        task = _aio.create_task(self._safe_broadcast(payload))
-                        self._bg_tasks.add(task)
-                        task.add_done_callback(self._bg_tasks.discard)
-                    except Exception:
-                        pass
             except asyncio.TimeoutError:
                 continue
-            except Exception as e:
-                print(f"Audit writer error: {e}")
+            if event is None:
+                break
+            # 内存环形缓冲 (会话级, 不落盘)
+            self.memory_buffer.append(event.model_dump(mode='json'))
+            if len(self.memory_buffer) > self.MEMORY_BUFFER_MAX:
+                del self.memory_buffer[:len(self.memory_buffer) - self.MEMORY_BUFFER_MAX]
+            # v1.3.0 方案B: 仅落盘模式写文件
+            if self.file_enabled:
+                self._write(event)
+            # audit 频道实时推送 (钩子异常不影响主流程)
+            if self._broadcast_hook is not None:
+                try:
+                    import asyncio as _aio
+                    payload = event.model_dump(mode='json')
+                    task = _aio.create_task(self._safe_broadcast(payload))
+                    self._bg_tasks.add(task)
+                    task.add_done_callback(self._bg_tasks.discard)
+                except Exception:
+                    pass
 
     async def _safe_broadcast(self, payload: dict):
         try:
@@ -203,6 +220,9 @@ class AuditLogger:
     async def log_event(self, event: AuditEvent):
         try:
             self._queue.put_nowait(event)
+        except RuntimeError:
+            # v1.3.3: 跨事件循环复用 (测试/多次 lifespan) — 队列不可用时直接写内存缓冲
+            self._buffer_only(event)
         except asyncio.QueueFull:
             # 队列满: 丢弃最旧事件保持实时流 (不阻塞、不落盘)
             try:
@@ -210,6 +230,12 @@ class AuditLogger:
                 self._queue.put_nowait(event)
             except Exception:
                 pass
+
+    def _buffer_only(self, event: AuditEvent):
+        """绕过队列直接维护内存环形缓冲, 保证审计事件不因队列失效而丢失"""
+        self.memory_buffer.append(event.model_dump(mode='json'))
+        if len(self.memory_buffer) > self.MEMORY_BUFFER_MAX:
+            del self.memory_buffer[:len(self.memory_buffer) - self.MEMORY_BUFFER_MAX]
 
     # ========== 便捷方法 ==========
 
@@ -314,6 +340,10 @@ def add_audit_fields(logger, method_name, event_dict: EventDict) -> EventDict:
     return event_dict
 
 
+# OBS-7: 过滤级别接通 LOG_LEVEL 环境变量 (原硬编码 INFO, debug 级日志永远不可见)
+_LOG_LEVEL_NAME = os.getenv("LOG_LEVEL", "INFO").upper()
+_LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
@@ -322,7 +352,7 @@ structlog.configure(
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.JSONRenderer()
     ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    wrapper_class=structlog.make_filtering_bound_logger(_LOG_LEVEL),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
     cache_logger_on_first_use=True,

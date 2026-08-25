@@ -11,10 +11,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# v1.3.3: 环境变量必须在 import app.main 之前设置 — auth_config 单例在导入时
+# 读取 SHARED_SECRET, 晚设会导致测试 HMAC 与服务端密钥不一致 → 401
+os.environ.setdefault("SHARED_SECRET", "test-secret-32chars-abcdef1234567890")
+SECRET = os.environ["SHARED_SECRET"].encode()
+
 from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
-
-SECRET = os.getenv("SHARED_SECRET", "").encode() or b"insecure-default-change-me-32chars"
 
 
 def node_token(node_id: str) -> str:

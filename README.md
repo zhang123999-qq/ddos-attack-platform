@@ -1,6 +1,6 @@
 # DDoS Attack Platform v1.3 — 内网红方攻击演练平台
 
-[![Version](https://img.shields.io/badge/version-1.3.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.3.3-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Internal%20Only-red.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)]()
@@ -65,10 +65,13 @@ bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-pla
 ```bash
 ddos-controller            # 查看状态（版本/WebUI地址/在线节点数）
 ddos-controller logs       # 跟踪日志        (l = 最近 50 行)
-ddos-controller restart    # 重启服务        (r 同义)
-ddos-controller update     # ⭐ 一键升级到最新 Release
-ddos-controller uninstall  # 完整卸载
+sudo ddos-controller restart    # 重启服务        (r 同义)
+sudo ddos-controller update     # ⭐ 一键升级到最新 Release
+sudo ddos-controller uninstall  # 完整卸载
 ```
+
+> v1.3.3: 变更类操作需要 root。若当前 sudo 免密缓存有效，直接 `ddos-controller restart`
+> 也会自动代执行；否则会明确提示加 sudo，不再出现含糊的 "Access denied"。
 
 **添加攻击节点** — 打开 WebUI「节点管理」→「➕ 添加节点」，
 选择类型、填节点 ID，复制生成的命令到目标攻击机以 root 粘贴执行：
@@ -401,11 +404,12 @@ cd deploy
 
 # === 一键安装节点/控制器管理 (安装器自带, v1.2.3+) ===
 # 无参数即状态; 支持短别名 (s=status, r=restart, l=最近日志, u=update)
+# 变更类操作需要 root: sudo 缓存有效时可不加 sudo, 否则会提示加 sudo
 ddos-controller            # 控制器状态: 版本/WebUI地址/在线节点数
-ddos-controller update     # ⭐ 升级控制器到最新 GitHub Release
+sudo ddos-controller update     # ⭐ 升级控制器到最新 GitHub Release
 ddos-controller logs       # 跟踪日志 (Ctrl-C 退出)
 ddos-node                  # 节点状态: 进程/健康检查/节点ID
-ddos-node restart          # 重启节点服务
+sudo ddos-node restart     # 重启节点服务
 
 # === 手动 Docker 操作 ===
 docker logs -f ddos-controller         # Controller 日志

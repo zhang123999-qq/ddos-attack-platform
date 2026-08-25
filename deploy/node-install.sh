@@ -254,6 +254,17 @@ cat > "$CTL_PATH" <<'CTL'
 SERVICE="ddos-attacker"
 ETC="/etc/ddos-attacker"
 
+# BUG-1: 变更类操作需要 root — root 直行; sudo 免密缓存命中即代执行;
+# 否则明确提示正确命令 (原实现直接 systemctl 报 Access denied)
+SUDO=""
+[[ $EUID -ne 0 ]] && SUDO="sudo"
+require_root() {
+    if [[ $EUID -ne 0 ]] && ! sudo -n true 2>/dev/null; then
+        echo "[AUTH] 此操作需要 root 权限, 请执行: sudo ddos-node ${1:-<op>}" >&2
+        exit 1
+    fi
+}
+
 show_status() {
     local state pid nid
     state=$(systemctl is-active "$SERVICE" 2>/dev/null)
@@ -273,16 +284,26 @@ show_status() {
 case "${1:-}" in
     ""|status)  show_status ;;
     s)          show_status ;;
-    start)      systemctl start "$SERVICE";  show_status ;;
-    stop)       systemctl stop "$SERVICE";   echo "node stopped" ;;
-    r|restart)  systemctl restart "$SERVICE"; sleep 2; show_status ;;
+    start)      require_root "$1";  $SUDO systemctl start "$SERVICE";  show_status ;;
+    stop)       require_root "$1";  $SUDO systemctl stop "$SERVICE";   echo "node stopped" ;;
+    r|restart)  require_root "$1";  $SUDO systemctl restart "$SERVICE"; sleep 2; show_status ;;
     logs)       journalctl -u "$SERVICE" -f --no-pager -n 100 ;;
     l)          journalctl -u "$SERVICE" -n 50 --no-pager ;;
-    enable)     systemctl enable "$SERVICE" ;;
-    disable)    systemctl disable "$SERVICE" ;;
+    enable)     require_root "$1";  $SUDO systemctl enable "$SERVICE" ;;
+    disable)    require_root "$1";  $SUDO systemctl disable "$SERVICE" ;;
     update)     echo "[UPDATE] Re-running installer with current enrollment config..."
                 echo "[INFO] Node updates ship via controller enroll; re-run the WebUI-generated install command to upgrade." ;;
-    uninstall)  systemctl disable --now "$SERVICE" 2>/dev/null; rm -f /etc/systemd/system/${SERVICE}.service; systemctl daemon-reload; rm -rf /opt/ddos-attack-platform/attacker "$ETC" "/usr/local/bin/$(basename "$0")"; echo "uninstalled" ;;
+    uninstall)  require_root "$1"
+                if [[ $EUID -ne 0 ]]; then
+                    $SUDO systemctl disable --now "$SERVICE" 2>/dev/null
+                    $SUDO rm -f /etc/systemd/system/${SERVICE}.service; $SUDO systemctl daemon-reload
+                    $SUDO rm -rf /opt/ddos-attack-platform/attacker "$ETC" "/usr/local/bin/$(basename "$0")"
+                else
+                    systemctl disable --now "$SERVICE" 2>/dev/null
+                    rm -f /etc/systemd/system/${SERVICE}.service; systemctl daemon-reload
+                    rm -rf /opt/ddos-attack-platform/attacker "$ETC" "/usr/local/bin/$(basename "$0")"
+                fi
+                echo "uninstalled" ;;
     *) echo "Usage: ddos-node [status|start|stop|restart|logs|update|uninstall]"
        echo "  (无参数=status, s=status, r=restart, l=最近日志)" ;;
 esac
