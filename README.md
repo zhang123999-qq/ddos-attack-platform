@@ -1,6 +1,6 @@
 # DDoS Attack Platform v1.3 — 内网红方攻击演练平台
 
-[![Version](https://img.shields.io/badge/version-1.3.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.3.4-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Internal%20Only-red.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)]()
@@ -72,6 +72,10 @@ sudo ddos-controller uninstall  # 完整卸载
 
 > v1.3.3: 变更类操作需要 root。若当前 sudo 免密缓存有效，直接 `ddos-controller restart`
 > 也会自动代执行；否则会明确提示加 sudo，不再出现含糊的 "Access denied"。
+>
+> v1.3.4: 安装器创建专用 `ddos` 系统用户（无登录权限），`config.env` 固定 `chmod 600`
+> 保护 `SHARED_SECRET`；systemd 单元添加 `User=ddos Group=ddos`（之前因用户不存在会回退
+> root 运行）。升级路径自动修正 owner 与权限。
 
 **添加攻击节点** — 打开 WebUI「节点管理」→「➕ 添加节点」，
 选择类型、填节点 ID，复制生成的命令到目标攻击机以 root 粘贴执行：

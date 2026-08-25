@@ -11,7 +11,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 INSTALL_DIR="/opt/ddos-attack-platform/controller"
 ETC_DIR="/etc/ddos-controller"
 CERT_DIR="$INSTALL_DIR/certs"
@@ -153,6 +153,21 @@ if [[ -z "${DOCKER_MODE:-}" ]]; then
     rm -f "/tmp/$TARBALL"
 fi
 
+# ---------- 修复 F2: 创建专用服务用户, 避免 systemd User=ddos 回退 root ----------
+# 与 install-service.sh 行为一致: 不存在则创建无登录权限的 ddos 系统用户
+SERVICE_USER="ddos"
+if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    log_info "creating service user: $SERVICE_USER"
+    useradd -r -s /usr/sbin/nologin -m -d /nonexistent "$SERVICE_USER" 2>/dev/null || true
+fi
+
+# 修复 F2+F3: 修正安装目录和配置的所有者与权限
+# GHA tarball 会保留 build UID (1001), 这里 chown 到 ddos 用户
+chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR" "$ETC_DIR" 2>/dev/null || true
+# 密钥文件必须是 600 (其他用户不可读); 安装目录 750 (其他用户不可遍历)
+chmod 750 "$INSTALL_DIR" "$ETC_DIR" 2>/dev/null || true
+chmod 600 "$ETC_DIR/config.env" 2>/dev/null || true
+
 # ---------- 分发物: 节点安装脚本 (BUG-5: 二进制包不含源码树, /install.sh 端点需要它) ----------
 # 控制器按 INSTALL_SCRIPT_PATH env → 仓库 deploy/ → /app/deploy/ → 二进制同目录 顺序查找
 if [[ -z "${DOCKER_MODE:-}" ]]; then
@@ -191,6 +206,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/$BIN_NAME
 ExecStop=/bin/kill -SIGTERM \$MAINPID
@@ -268,6 +285,19 @@ do_update() {
         systemctl start "$SERVICE_NAME"; rm -rf "$tmp"; return 1
     fi
     chmod +x "$INSTALL_DIR/ddos-controller"
+    # 修复 F2+F3: 升级路径同样修正 owner 和 config.env 权限
+    # GHA tarball 中文件可能属 build UID (如 1001:1001), 需 chown 回 ddos
+    if id -u ddos >/dev/null 2>&1; then
+        chown -R ddos:ddos "$INSTALL_DIR" "$ETC_DIR" 2>/dev/null || true
+    fi
+    chmod 750 "$INSTALL_DIR" "$ETC_DIR" 2>/dev/null || true
+    chmod 600 "$ETC_DIR/config.env" 2>/dev/null || true
+    # 节点安装脚本 (install.sh 端点) — 同步刷新到最新 master
+    if curl -Lfs --max-time 60 --retry 2 -o "$INSTALL_DIR/node-install.sh" \
+        "https://raw.githubusercontent.com/${GITHUB_REPO}/master/deploy/node-install.sh" 2>/dev/null; then
+        chmod +x "$INSTALL_DIR/node-install.sh"
+        chown ddos:ddos "$INSTALL_DIR/node-install.sh" 2>/dev/null || true
+    fi
     rm -rf "$tmp"
     systemctl start "$SERVICE_NAME"
 
@@ -335,6 +365,8 @@ case "${1:-}" in
 esac
 CTL
 chmod +x "$CTL_PATH"
+# 修复 F4: 限制 service unit 文件权限为 640 (其他用户不可读 systemd 环境变量)
+chmod 640 "/etc/systemd/system/${SERVICE_NAME}.service" 2>/dev/null || true
 systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 fi

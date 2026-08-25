@@ -14,7 +14,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 INSTALL_DIR="/opt/ddos-attack-platform/attacker"
 ETC_DIR="/etc/ddos-attacker"
 SERVICE_NAME="ddos-attacker"
@@ -195,6 +195,14 @@ tar -xzf "/tmp/$TARBALL" -C "$INSTALL_DIR"
 chmod +x "$INSTALL_DIR/$BIN_NAME" 2>/dev/null || true
 rm -f "/tmp/$TARBALL"
 
+# ---------- 修复 F2: 创建专用服务用户 ----------
+# 与 install-service.sh 行为一致: 不存在则创建无登录权限的 ddos 系统用户
+SERVICE_USER="ddos"
+if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    log_info "creating service user: $SERVICE_USER"
+    useradd -r -s /usr/sbin/nologin -m -d /nonexistent "$SERVICE_USER" 2>/dev/null || true
+fi
+
 # ---------- 写配置 ----------
 cat > "$ETC_DIR/config.env" <<ENV
 NODE_ID=${NODE_ID}
@@ -207,6 +215,11 @@ ATTACK_TYPES=$( [[ "$NODE_TYPE" == "raw" ]] && echo "syn_flood,udp_flood,udp_ref
 LOG_LEVEL=info
 ENV
 chmod 600 "$ETC_DIR/config.env"
+
+# ---------- 修复 F2+F3: 修正所有者 + 目录权限 ----------
+# GHA tarball 中文件可能属 build UID (1001:1001), 需 chown 回 ddos
+chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR" "$ETC_DIR" 2>/dev/null || true
+chmod 750 "$INSTALL_DIR" "$ETC_DIR" 2>/dev/null || true
 
 # ---------- systemd 单元 (复用仓库加固基线) ----------
 if [[ "$NODE_TYPE" == "raw" ]]; then
@@ -225,7 +238,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=$( [[ "$NODE_TYPE" == "raw" ]] && echo "root" || echo "$SERVICE_USER" )
+Group=$( [[ "$NODE_TYPE" == "raw" ]] && echo "root" || echo "$SERVICE_USER" )
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/$BIN_NAME
 ExecStop=/bin/kill -SIGTERM \$MAINPID
@@ -246,6 +260,8 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 UNIT
+# 修复 F4: 限制 service unit 文件权限为 640
+chmod 640 "/etc/systemd/system/${SERVICE_NAME}.service"
 
 # ---------- 管理命令 ----------
 cat > "$CTL_PATH" <<'CTL'

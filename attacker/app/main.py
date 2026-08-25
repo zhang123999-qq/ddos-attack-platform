@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 import httpx
 
 # 平台版本单一事实源 — 发布时只改这一处
-PLATFORM_VERSION = "1.3.3"
+PLATFORM_VERSION = "1.3.4"
 import structlog
 
 from app.models import (
