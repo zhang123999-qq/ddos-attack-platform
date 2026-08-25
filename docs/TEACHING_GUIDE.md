@@ -182,7 +182,7 @@ Controller: 10.100.1.10
 - GB/T 39786-2021: 网络安全等级保护测评要求
 
 ### 工具与平台
-- 本平台: DDoS Attack Platform v1.0
+- 本平台: DDoS Attack Platform v1.3
 - 流量分析: Wireshark, Zeek, Suricata
 - 压测对比: Locust, k6, wrk, hey
 - 监控: Prometheus + Grafana, ELK Stack
@@ -235,7 +235,10 @@ tail -f /var/log/ddos-audit/audit.jsonl | jq .
 
 ---
 
-**文档版本**: v1.1  
-**适用平台版本**: DDoS Attack Platform v1.1  
-**更新日期**: 2024-12-19  
+**文档版本**: v1.3  
+**适用平台版本**: DDoS Attack Platform v1.3+  
+**更新日期**: 2025-08-25  
 **维护人**: 网络安全红队
+
+> v1.3 变更提示：平台不再技术强制目标白名单（任意 IP/域名可发射），
+> 实验目标以授权书 + 双人核对为准；审计默认不落盘（`AUDIT_FILE_ENABLED=true` 恢复）。

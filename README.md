@@ -1,6 +1,6 @@
-# DDoS Attack Platform v1.1 — 内网红方攻击演练平台
+# DDoS Attack Platform v1.3 — 内网红方攻击演练平台
 
-[![Version](https://img.shields.io/badge/version-1.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.3.2-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Internal%20Only-red.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)]()
@@ -9,7 +9,9 @@
 > 📋 **部署前必须阅读并签署 [安全守则](docs/SAFETY_RULES.md) 与授权确认书**  
 > 🚫 **严禁用于任何非授权测试、生产环境攻击、公共网络攻击**
 >
-> **v1.1 更新**: Controller↔Attacker 实时 HTTP 指令下发、二进制部署、审计修复、安全加固
+> **v1.3 更新**: 目标支持域名/IP（白名单技术强制已移除，转流程管控）、攻击日志默认不落盘
+> （内存会话级环形缓冲，`AUDIT_FILE_ENABLED=true` 可选恢复落盘）、实时反馈链路重构
+> （节点 2s 周期上报 + 权威状态机 + 错误聚合摘要 + WebUI 秒级进度刷新）
 
 ---
 
@@ -56,7 +58,7 @@
 bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-platform/master/deploy/controller-install.sh)
 ```
 
-交互式配置端口/密钥/白名单后自动完成 systemd 部署，结束时打印 WebUI 地址。
+交互式配置端口/密钥后自动完成 systemd 部署，结束时打印 WebUI 地址。
 
 **管理快捷指令**（装完即用）：
 
@@ -171,18 +173,18 @@ cd attacker   && start.bat
 │   ├── 场景编排 (CC/SYN/Slowloris/混合波/渐进波)
 │   ├── 全局限流 (令牌桶三级: 全局/节点/Worker)
 │   ├── 紧急熔断 (<100ms 全网停止)
-│   └── 审计日志 (JSONL + ELK)
+│   └── 审计事件流 (默认内存会话级; AUDIT_FILE_ENABLED=true 落盘 JSONL)
 │
 ├── ⚔️ Attacker-HTTP (10.100.1.20)   # 应用层攻击节点
 │   ├── http_flood (CC攻击)          # aiohttp 高并发
 │   ├── slowloris (慢速攻击)         # 连接耗尽
+│   ├── 运行中每 2s 上报进度快照      # v1.3 实时反馈
 │   └── 无需特权 (普通用户运行)
 │
 ├── ⚔️ Attacker-RAW (10.100.1.21)    # 传输层攻击节点
-│   ├── syn_flood                    # scapy 原始套接字
-│   ├── udp_flood                    # UDP 洪水
-│   ├── udp_reflection (NTP/DNS/SSDP) # 反射放大
-│   └── 需 CAP_NET_RAW (cap_add)
+│   ├── syn_flood                    # scapy 原始套接字 (支持域名目标, 自动解析)
+│   ├── udp_flood / udp_reflection   # UDP 洪水 / 反射放大
+│   └── 需 CAP_NET_RAW (cap_add, 非 privileged)
 │
 ├── ⚔️ Attacker-N ...                # 横向扩展 (无状态)
 │
@@ -204,8 +206,9 @@ cp config.env.example config.env
 
 # 必须修改的关键配置：
 # CONTROLLER_IP=10.100.1.10          # Controller 绑定 IP
-# ALLOWED_TARGET_CIDRS="10.100.0.0/16,192.168.0.0/16"  # 攻击目标白名单
 # SHARED_SECRET="$(openssl rand -hex 32)"  # 预共享密钥 (32字节)
+# 注: v1.3 起无需配置 ALLOWED_TARGET_CIDRS (白名单技术强制已移除,
+#     目标约束由授权流程管控, 见 SAFETY_RULES.md 红线条款)
 
 # 生成证书
 cd ../deploy && ./generate_certs.sh
@@ -301,7 +304,8 @@ ddos-attack-platform/
 │   │   ├── main.py            # FastAPI 入口、路由、生命周期
 │   │   ├── auth.py            # mTLS + Token 双重认证
 │   │   ├── orchestrator.py    # 编排核心：节点/攻击/场景/限流
-│   │   ├── audit.py           # 结构化审计日志 (JSONL)
+│   │   ├── audit.py           # 审计事件流 (默认内存缓冲, 可选 JSONL 落盘)
+│   │   ├── registry.py        # 攻击注册表 + 权威状态机 + TTL 清理 (v1.3)
 │   │   ├── models.py          # Pydantic 数据模型
 │   │   ├── websocket.py       # 多频道 WebSocket 推送
 │   │   └── node_commander.py  # Controller→Attacker HTTP 下发
@@ -317,9 +321,9 @@ ddos-attack-platform/
 │   │   ├── health.py          # 资源采集 (CPU/内存/网络/连接数)
 │   │   ├── crypto.py          # mTLS 客户端、Token 派生
 │   │   └── attacks/
-│   │       ├── base.py        # 安全基类: 白名单/熔断/限速/审计
+│   │       ├── base.py        # 安全基类: 熔断/限速/审计/2s进度上报 (v1.3)
 │   │       ├── http_flood.py  # aiohttp 高并发 HTTP Flood
-│   │       ├── syn_flood.py   # scapy SYN Flood (原始套接字)
+│   │       ├── syn_flood.py   # scapy SYN Flood (域名目标自动解析)
 │   │       ├── slowloris.py   # Slowloris (异步 sock_sendall)
 │   │       ├── udp_flood.py   # UDP Flood / 反射放大
 │   │       └── __init__.py    # AttackRegistry 自动注册
@@ -415,7 +419,7 @@ TOKEN=$(echo -n "ddos-controller-auth" | openssl dgst -sha256 -hmac "<SHARED_SEC
 # 查看节点
 curl -k -H "Authorization: Bearer $TOKEN" https://<ctrl>:8443/api/v1/nodes
 
-# 发起攻击
+# 发起攻击 (v1.3: target.ip 支持 IP/域名; 响应含 status/started_at, 运行中计数实时更新)
 curl -k -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   https://<ctrl>:8443/api/v1/attacks/launch \
   -d '{"attack_type":"http_flood","target":{"ip":"10.100.10.10","port":80},"duration":60,"rps":2000,"concurrency":200}'
@@ -430,13 +434,17 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ## ⚠️ 重要提醒（红线）
 
-1. **仅限授权内网** - 严禁对未书面授权目标发起攻击
+1. **仅限授权内网** - 严禁对未书面授权目标发起攻击。⚠️ v1.3 起平台**不再技术强制目标白名单**
+   （任意 IP/域名均可发射），目标约束完全依赖授权流程与操作纪律——请确保演练目标与
+   授权书一致，越权攻击按 SAFETY_RULES 红线追责
 2. **网络隔离** - 必须使用独立 VLAN/macvlan，实验网段无互联网路由
 3. **流量镜像** - 生产验证请用流量镜像/旁路，禁止直接攻击核心链路
 4. **法律合规** - 使用前确保符合《网络安全法》、《数据安全法》及单位制度
 5. **应急预案** - 演练前必须制定回滚方案，确认物理断网开关、熔断按钮可达
 6. **证书轮换** - CA 2年、节点证书 1年（`DAYS_VALID_CA/DAYS_VALID_NODE` 可调）；SHARED_SECRET 人工 90 天轮换（须全节点同步，平台开启 `REQUIRE_SHARED_SECRET=true` 拒绝弱密钥启动）
-7. **审计留痕** - 所有操作自动记录，不可篡改，保留 ≥90 天
+7. **审计留痕** - v1.3 起 WebUI 审计面板为**会话级内存缓冲（500 条，重启即清）**；
+   需满足 ≥90 天留存的部署必须设置 `AUDIT_FILE_ENABLED=true` 启用 JSONL 落盘，
+   并接入 ELK/Splunk 集中归档
 
 ---
 

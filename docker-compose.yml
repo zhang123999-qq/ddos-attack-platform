@@ -20,13 +20,13 @@ services:
       - TLS_CERT_FILE=/certs/controller-cert.pem
       - TLS_KEY_FILE=/certs/controller-key.pem
       - TLS_CA_FILE=/certs/ca-cert.pem
+      # v1.3.0 起目标白名单不再技术强制 (仅作为节点环境变量兼容保留);
+      # 目标约束转为流程管控: 授权书 + SAFETY_RULES 红线
       - ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12
       - GLOBAL_MAX_RPS=50000
       - GLOBAL_MAX_PPS=100000
       - GLOBAL_MAX_CONCURRENT_CONNECTIONS=100000
-      - AUDIT_LOG_PATH=/var/log/ddos-audit/audit.jsonl
-      - AUDIT_LOG_LEVEL=INFO
-      - AUDIT_RETENTION_DAYS=90
+      - AUDIT_FILE_ENABLED=false
       - ENABLE_WEB_UI=true
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
@@ -91,20 +91,18 @@ services:
       retries: 3
       start_period: 15s
 
-  # ========== Attacker RAW (需特权，用于 SYN/UDP) ==========
+  # ========== Attacker RAW (需 CAP_NET_RAW，用于 SYN/UDP) ==========
   attacker-raw:
     build:
       context: .
       dockerfile: attacker/Dockerfile.raw
     container_name: ddos-attacker-raw
     restart: unless-stopped
-    # RAW 攻击需要特权
-    privileged: true
-    # 或者使用细粒度 capability (推荐):
-    # cap_add:
-    #   - NET_RAW
-    #   - NET_ADMIN
-    # network_mode: "host"  # 如果需要发送伪造源 IP 包到外部网络
+    # 最小权限: 仅授予原始套接字/网络管理 capability (v1.3.2 审计修复,
+    # 原先 privileged: true 等价于宿主机 root, 违背最小权限原则)
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
     environment:
       - NODE_ID=attacker-raw-01
       - NODE_TYPE=raw

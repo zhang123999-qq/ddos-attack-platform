@@ -1,6 +1,6 @@
-# DDoS Attack Platform — API 参考文档 v1.1
+# DDoS Attack Platform — API 参考文档 v1.3
 
-[![Version](https://img.shields.io/badge/version-1.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.3.2-blue.svg)]()
 [![Base URL](https://img.shields.io/badge/base%20url-%2Fapi%2Fv1-green.svg)]()
 [![Auth](https://img.shields.io/badge/auth-Bearer%20%7C%20mTLS-orange.svg)]()
 
@@ -16,7 +16,7 @@
 
 本 API 文档仅供授权内网教学/演练使用。调用攻击类接口前，请确认：
 - ✅ 已获得目标网络书面授权
-- ✅ 目标 IP 在 `ALLOWED_TARGET_CIDRS` 白名单内
+- ✅ 目标 IP/域名与授权书范围一致（⚠️ v1.3 起平台不再技术强制白名单，越权属红线违规）
 - ✅ 已制定应急预案，确认熔断按钮可达
 - ❌ 严禁用于任何非授权测试、生产环境攻击
 
@@ -208,7 +208,7 @@ Content-Type: application/json
 **Target 对象**：
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `ip` | string | ✅ | 目标 IP (必须在白名单) |
+| `ip` | string | ✅ | 目标地址 — IPv4/IPv6/CIDR/**域名** (v1.3 起支持域名, scapy 类攻击自动解析 A 记录)。⚠️ v1.3 起不再校验白名单，仅拒绝场景模板占位符 |
 | `port` | int | ❌ | 目标端口，默认 80 |
 | `protocol` | enum | ❌ | `tcp` \| `udp`，默认 tcp |
 | `path` | string | ❌ | HTTP 路径，默认 / |
@@ -309,6 +309,10 @@ GET /api/v1/attacks
 Authorization: Bearer <TOKEN>
 ```
 
+> **v1.3 语义**：返回**运行中 + 60 分钟内结束**的所有攻击，每条均含权威
+> `status`（`launching/starting/running/stopping/stopped/completed/failed/emergency_stopped`）
+> 与 `started_at`——页面刷新后列表与状态不丢失。已结束攻击在 60 分钟 TTL 后自动清除。
+
 #### 查询攻击详情
 ```http
 GET /api/v1/attacks/{attack_id}
@@ -321,6 +325,10 @@ Authorization: Bearer <TOKEN>
   "success": true,
   "data": {
     "attack_id": "atk-a1b2c3d4e5f6",
+    "status": "running",
+    "started_at": "2024-01-15T10:30:00Z",
+    "finished_at": null,
+    "stop_reason": null,
     "command": { ... },
     "results": {
       "attacker-http-01": {
@@ -333,13 +341,20 @@ Authorization: Bearer <TOKEN>
         "failed_requests": 200,
         "bytes_sent": 5242880,
         "bytes_received": 10485760,
-        "metrics": {"latencies": [0.045, 0.052, ...]}
+        "metrics": {
+          "latencies": [0.045, 0.052],
+          "error_counts": {"ClientConnectorError": 200}
+        }
       }
     },
     "node_count": 2
   }
 }
 ```
+
+> **v1.3 实时性**：节点运行期间每 **2 秒**上报进度快照，控制器按单调递增合并
+> 计数器（total/successful/failed/bytes 只增不减）并经 WebSocket `attacks` 频道推送。
+> 每节点错误样本上限 50 条，聚合摘要见 `metrics.error_counts`。
 
 ---
 
@@ -706,7 +721,7 @@ wscat -c "$CONTROLLER_URL/ws/metrics?token=$TOKEN&channels=nodes,attacks,metrics
 | HTTP 码 | 错误码 | 含义 | 处理建议 |
 |---------|--------|------|----------|
 | 200 | - | 成功 | - |
-| 400 | `VALIDATION_ERROR` | 参数校验失败 (目标不在白名单、参数越界) | 检查请求体、确认目标 IP 在白名单 |
+| 400 | `VALIDATION_ERROR` | 参数校验失败 (目标格式非法、场景占位符未覆盖、参数越界) | 检查请求体、确认目标 IP/域名格式合法 |
 | 401 | `UNAUTHORIZED` | 认证失败 (Token 无效/过期/缺失) | 重新生成 Token、检查 SHARED_SECRET 一致性 |
 | 403 | `FORBIDDEN` | 权限不足 (非管理员操作熔断复位) | 确认调用者身份、权限矩阵 |
 | 404 | `NOT_FOUND` | 资源不存在 (攻击 ID/场景 ID/节点 ID) | 确认资源 ID 正确性 |
@@ -721,8 +736,9 @@ wscat -c "$CONTROLLER_URL/ws/metrics?token=$TOKEN&channels=nodes,attacks,metrics
 
 | 版本 | 日期 | 变更摘要 |
 |------|------|----------|
-| v1.1 | 2024-12-19 | 新增 Node API 文档、完善错误码、补充 Python/cURL 示例、修复 datetime 序列化说明；rate-limits 响应改为 quotas 数组（按 attack_id+node_id 记账）；场景运行 overrides 必填（400 校验）；新增 emergency_stop/reset 端点；节点注册/心跳/注销/结果上报身份一致性校验 (403)；TLS_VERIFY_CLIENT 开关说明 |
+| v1.3.2 | 2025-08-25 | 目标支持域名/IP（TargetSpec RFC1123 校验，scapy 类攻击 getaddrinfo 自动解析）；**目标白名单技术强制移除**（仅保留场景占位符拒绝）；攻击列表/详情新增权威 `status/started_at/finished_at/stop_reason`，返回运行中+60min TTL 内已结束攻击；节点每 2s 周期上报进度快照（单调合并）；`metrics.error_counts` 错误聚合摘要（样本上限 50）；WebSocket attack_start 携带完整 command |
 | v1.2 | 2024-12-20 | 新增一键安装引导端点组：enroll-command / nodes/enroll / controller-info / install.sh / artifacts 分发；无状态 enroll token 机制说明 |
+| v1.1 | 2024-12-19 | 新增 Node API 文档、完善错误码、补充 Python/cURL 示例、修复 datetime 序列化说明；rate-limits 响应改为 quotas 数组（按 attack_id+node_id 记账）；场景运行 overrides 必填（400 校验）；新增 emergency_stop/reset 端点；节点注册/心跳/注销/结果上报身份一致性校验 (403)；TLS_VERIFY_CLIENT 开关说明 |
 | v1.0 | 2024-01-15 | 初始版本：REST API、WebSocket、场景管理、限流查询 |
 
 ---

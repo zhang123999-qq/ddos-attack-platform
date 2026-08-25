@@ -30,7 +30,7 @@
 | 目标 | 描述 | 实现方式 |
 |------|------|----------|
 | **分布式编排** | 单 Controller 管理多 Attacker 节点 | REST API + WebSocket + 节点注册表 |
-| **安全可控** | 零信任通信、目标白名单、熔断、全链路审计 | mTLS 1.2+、HMAC-SHA256、令牌桶三级限流 |
+| **安全可控** | 零信任通信、紧急熔断、全链路审计、目标流程管控 | mTLS 1.2+、HMAC-SHA256、令牌桶三级限流（v1.3: 目标白名单技术强制移除，约束转授权流程） |
 | **教学友好** | 预设场景、实时可视化、标准化评估 | 6 大内置场景、Web UI、Grafana 仪表盘 |
 | **生产隔离** | 容器化部署、网络隔离、最小权限原则 | Docker、VLAN/macvlan、CAP_NET_RAW 仅 RAW 节点 |
 
@@ -228,10 +228,11 @@ wss://<controller>:8443/ws/metrics?token=<CTRL_TOKEN>&channels=nodes,attacks,met
                               ▼
 ┌────────────────────────────────────────────────────────────┐
 │                    控制平面 (Attacker Nodes)                  │
-│  职责：指令执行、本地限流执行、结果采集上报、健康上报          │
-│  权限：仅执行下发指令、仅攻击白名单目标、不可修改配置          │
+│  职责：指令执行、本地限流执行、结果采集上报、健康上报、          │
+│        运行期 2s 周期进度快照 (v1.3)                          │
+│  权限：仅执行预注册攻击类型、不可修改配置、无文件/Shell 访问    │
 └────────────────────────────┬─────────────────────────────────┘
-                              │ 仅允许目标白名单 (ALLOWED_TARGET_CIDRS)
+                              │ 目标约束为流程管控 (v1.3 起无技术白名单)
                               ▼
 ┌────────────────────────────────────────────────────────────┐
 │                    数据平面 (Target Network)                  │
@@ -246,10 +247,28 @@ wss://<controller>:8443/ws/metrics?token=<CTRL_TOKEN>&channels=nodes,attacks,met
 |------|------|----------|----------|
 | **网络层** | VLAN 物理隔离、防火墙微隔离、无互联网路由 | 交换机/路由器/防火墙 | 网络拓扑图、ACL 审计 |
 | **传输层** | mTLS 1.2+、双向验证、证书轮换(1-2年)、CRL/OCSP | Controller/Node 通信层 | `openssl verify`、证书指纹核对 |
-| **应用层** | HMAC-SHA256 Token、目标白名单双层校验、参数合法性检查 | Controller Orchestrator + Attacker SafeAttackBase | 单测覆盖、渗透测试 |
-| **运行层** | 非 root (UID 1000)、最小 Capability、只读根文件系统 | Docker 容器、systemd | `docker inspect`、能力审计 |
+| **应用层** | HMAC-SHA256 Token、攻击类型白名单 (AttackRegistry 预注册)、参数合法性检查、场景占位符拒绝 | Controller Orchestrator + Attacker SafeAttackBase | 单测覆盖、渗透测试 |
+| **运行层** | 非 root (UID 1000)、最小 Capability (CAP_NET_RAW 仅 RAW 节点)、只读根文件系统 | Docker 容器、systemd | `docker inspect`、能力审计 |
 | **业务层** | 三级令牌桶限流、熔断状态机、攻击超时自动停止 | Orchestrator RateLimiter | 压测验证、混沌工程 |
-| **审计层** | JSONL 结构化日志、日志轮转(100MB/10份)、ELK 接入、完整性校验 | AuditLogger + Filebeat | 日志采样、哈希校验 |
+| **审计层** | 结构化事件流 (v1.3 默认会话级内存缓冲 500 条；`AUDIT_FILE_ENABLED=true` 时 JSONL 落盘 + 轮转)、ELK 接入 | AuditLogger + Filebeat | 日志采样、哈希校验 |
+
+### 4.3 实时反馈链路 (v1.3)
+
+```
+节点攻击线程 ──每 2s──> AttackResult(status=RUNNING, metrics={"snapshot":true})
+                              │ POST /api/v1/results (现有上报通道复用)
+                              ▼
+        Controller AttackExecutor.collect_result
+          ├─ 单调合并: total/successful/failed/bytes 按字段取最大值 (防快照回退)
+          ├─ 权威状态机: _attack_meta[attack_id] = {status, started_at, finished_at, stop_reason}
+          │    launching → running → (stopping) → stopped/completed/failed/emergency_stopped
+          ├─ 终态判定: 全部预期节点上报终态, 或 prune 循环对超时僵尸 (duration+120s) 兜底收尾
+          └─ 结果表 TTL 清理: 已结束攻击保留 60 分钟后移除 (内存有界)
+                              │ WebSocket attacks 频道推送
+                              ▼
+                     WebUI mergeResult() 合并 + 1s 秒级重绘
+                       进度条 / 行内错误摘要 error_counts / 停止·清除按钮
+```
 
 ---
 
@@ -486,7 +505,7 @@ certs/
 | 节点在线率 | 100% | < 90% | < 50% (触发自动熔断) |
 | 心跳延迟 | < 500ms | > 2s | > 5s |
 | 攻击指令下发成功率 | 100% | < 99% | < 95% |
-| 审计日志写入延迟 | < 10ms | > 100ms | > 1s (触发熔断) |
+| 审计事件流延迟 | < 10ms | > 100ms | > 1s (触发熔断)；落盘模式需 `AUDIT_FILE_ENABLED=true` |
 | 证书过期剩余天数 | > 30天 | ≤ 30天 | ≤ 7天 |
 
 ### 9.2 Grafana 仪表盘 (预置)
@@ -502,7 +521,9 @@ certs/
 ## 10. 版本历史
 
 | 版本 | 日期 | 变更摘要 | 影响范围 |
-|------|------|---------|---------|
+|------|------|---------|---------|| 版本 | 日期 | 变更摘要 | 影响范围 |
+|------|------|----------|----------|
+| v1.3.2 | 2025-08-25 | 方案 A/B/C：目标域名/IP 无限制（白名单技术强制移除，占位符守卫保留，scapy getaddrinfo 解析）；攻击日志默认不落盘（内存环形缓冲 500 条 + AUDIT_FILE_ENABLED 开关）；结果表 60min TTL 清理 + 僵尸兜底；权威状态机 + 节点 2s 周期快照上报 + WebUI mergeResult 秒级重绘 + 行内错误聚合摘要 + 停止/清除操作列；安装器移除白名单询问 | 全栈 |
 | v1.2 | 2024-12-20 | 一键安装体系（控制器交互式安装器 + 节点拉取式自助接入：无状态 enroll token、CA/制品分发、WebUI 命令生成）、部署脚本安全加固（SSH accept-new、eval 注入封堵、密钥强制校验）、REQUIRE_SHARED_SECRET | 部署链 + 控制器 API |
 | v1.1 | 2024-12-19 | Controller↔Attacker 实时 HTTP 指令下发、二进制部署、审计修复、安全加固、datetime 序列化修复 | 全栈 |
 | v1.0 | 2024-01-15 | 初始版本：基础编排、5 种攻击、mTLS、WebSocket、Docker 部署 | 全栈 |
