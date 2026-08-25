@@ -31,39 +31,20 @@ class QuotaExhaustedError(Exception):
     """配额耗尽异常 (全局/节点任一维度)"""
 
 class TargetValidator:
-    """目标白名单验证器
+    """目标验证器
 
-    支持两类目标:
-    - 单 IP: 必须命中任一允许网段;
-    - CIDR:  必须是某允许网段的子集 (subnet_of), 防止白名单被放大。
-    占位符目标一律拒绝。
+    v1.3.0 方案A: 目标域名/IP 不做任何限制 — 保留类以兼容既有装配与测试,
+    is_allowed 恒真; 仅拒绝场景模板占位符 (加载期合法、执行前必须被覆盖)。
     """
 
     def __init__(self, allowed_cidrs: List[str]):
+        # 兼容旧签名; 白名单参数不再生效
         self.allowed_networks = []
-        for cidr in allowed_cidrs:
-            try:
-                from ipaddress import ip_network
-                self.allowed_networks.append(ip_network(cidr.strip(), strict=False))
-            except ValueError as e:
-                logger.warning("invalid_cidr", cidr=cidr, error=str(e))
 
     def is_allowed(self, target: TargetSpec) -> bool:
-        from ipaddress import ip_address, ip_network
-        try:
-            if getattr(target, "is_placeholder", lambda: False)():
-                return False
-            try:
-                ip = ip_address(target.ip)
-                return any(ip in net for net in self.allowed_networks)
-            except ValueError:
-                net = ip_network(target.ip, strict=False)
-                return any(
-                    net.version == allowed.version and net.subnet_of(allowed)
-                    for allowed in self.allowed_networks
-                )
-        except (ValueError, TypeError):
+        if getattr(target, "is_placeholder", lambda: False)():
             return False
+        return True
 
 
 class RateLimiter:

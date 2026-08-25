@@ -20,45 +20,54 @@ from app.models import AuditEvent, NodeInfo, AttackCommand, AttackResult, Attack
 
 
 class AuditLogger:
-    """结构化审计日志 - JSONL 格式，支持文件轮转 + ELK 转发"""
+    """结构化审计事件分发器
+
+    v1.3.0 方案B: 攻击日志不做磁盘存储 (AUDIT_FILE_ENABLED 默认 false)。
+    事件仅经内存队列 → WebSocket 实时广播 + 会话级环形缓冲 (最近 500 条)。
+    设 AUDIT_FILE_ENABLED=true 可恢复旧的 JSONL 落盘 + 轮转行为。
+    """
+
+    # 会话级环形缓冲 — 供 WebUI 审计面板回看, 不落盘
+    MEMORY_BUFFER_MAX = 500
 
     def __init__(self):
-        # 降级链: AUDIT_LOG_PATH|/var/log → cwd → ~/.local/state → tmpdir
-        # 覆盖: Docker 非 root(cwd=/app 可写) / systemd ProtectSystem=strict
-        # (ReadWritePaths 放行 INSTALL_DIR, cwd 兜底) / 普通用户手动运行。
-        # 绝不在 import 期崩溃。
-        candidates = [
-            Path(os.getenv("AUDIT_LOG_PATH", "/var/log/ddos-audit/audit.jsonl")),
-            Path.cwd() / "audit.jsonl",
-            Path.home() / ".local" / "state" / "ddos-audit" / "audit.jsonl",
-            Path(__import__("tempfile").gettempdir()) / "ddos-audit.jsonl",
-        ]
-        self.log_path = candidates[0]
-        for cand in candidates:
-            try:
-                cand.parent.mkdir(parents=True, exist_ok=True)
-                probe = cand.parent / ".write_test"
-                probe.touch(); probe.unlink()
-                self.log_path = cand
-                break
-            except (PermissionError, OSError):
-                continue
-        if self.log_path != candidates[0]:
-            logging.getLogger("ddos.audit").warning(
-                "audit_log_fallback: %s unwritable, using %s", candidates[0], self.log_path)
-        self.retention_days = int(os.getenv("AUDIT_RETENTION_DAYS", "90"))
+        self.file_enabled = os.getenv("AUDIT_FILE_ENABLED", "false").lower() == "true"
 
-        self.file_handler = RotatingFileHandler(
-            self.log_path,
-            maxBytes=100 * 1024 * 1024,
-            backupCount=10,
-            encoding="utf-8"
-        )
-        self.file_handler.setFormatter(logging.Formatter("%(message)s"))
+        if self.file_enabled:
+            # 降级链: AUDIT_LOG_PATH|/var/log → cwd → ~/.local/state → tmpdir
+            candidates = [
+                Path(os.getenv("AUDIT_LOG_PATH", "/var/log/ddos-audit/audit.jsonl")),
+                Path.cwd() / "audit.jsonl",
+                Path.home() / ".local" / "state" / "ddos-audit" / "audit.jsonl",
+                Path(__import__("tempfile").gettempdir()) / "ddos-audit.jsonl",
+            ]
+            self.log_path = candidates[0]
+            for cand in candidates:
+                try:
+                    cand.parent.mkdir(parents=True, exist_ok=True)
+                    probe = cand.parent / ".write_test"
+                    probe.touch(); probe.unlink()
+                    self.log_path = cand
+                    break
+                except (PermissionError, OSError):
+                    continue
+            self.file_handler = RotatingFileHandler(
+                self.log_path,
+                maxBytes=100 * 1024 * 1024,
+                backupCount=10,
+                encoding="utf-8"
+            )
+            self.file_handler.setFormatter(logging.Formatter("%(message)s"))
+            logging.getLogger("ddos.audit").addHandler(self.file_handler)
+        else:
+            self.log_path = None
+            self.file_handler = None
+
+        self.retention_days = int(os.getenv("AUDIT_RETENTION_DAYS", "90"))
+        self.memory_buffer: list = []  # 环形缓冲 (deque 语义, 手动裁剪)
 
         self.logger = logging.getLogger("ddos.audit")
         self.logger.setLevel(logging.INFO)
-        self.logger.addHandler(self.file_handler)
         self.logger.propagate = False
 
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
@@ -74,16 +83,23 @@ class AuditLogger:
         """注入 async callable(event_dict); 由应用装配层调用"""
         self._broadcast_hook = hook
 
+    async def recent_events(self) -> list:
+        """会话内最近审计事件 (内存缓冲, 不含历史落盘数据)"""
+        return list(self.memory_buffer)
+
     async def start(self):
         self._running = True
         self._writer_task = asyncio.create_task(self._writer_loop())
-        # C-3/M-4 修复: 启动按天保留清理任务 (AUDIT_RETENTION_DAYS 原先无任何引用)
-        self._retention_task = asyncio.create_task(self._retention_loop())
+        if self.file_enabled:
+            # C-3/M-4 修复: 启动按天保留清理任务 (仅落盘模式需要)
+            self._retention_task = asyncio.create_task(self._retention_loop())
         await self.log_event(AuditEvent(
             event_id=self._gen_id(),
             event_type="config_change",
             actor="system",
-            details={"action": "audit_logger_started", "path": str(self.log_path)}
+            details={"action": "audit_logger_started",
+                     "file_enabled": self.file_enabled,
+                     "path": str(self.log_path) if self.log_path else None}
         ))
 
     async def stop(self):
@@ -115,8 +131,9 @@ class AuditLogger:
                 except asyncio.CancelledError:
                     pass
 
-        # 4. 关闭文件处理器
-        self.file_handler.close()
+        # 4. 关闭文件处理器 (仅落盘模式)
+        if self.file_handler:
+            self.file_handler.close()
 
     async def _writer_loop(self):
         while self._running:
@@ -124,8 +141,14 @@ class AuditLogger:
                 event = await asyncio.wait_for(self._queue.get(), timeout=1.0)
                 if event is None:
                     break
-                self._write(event)
-                # audit 频道实时推送 (钩子异常不影响落盘)
+                # 内存环形缓冲 (会话级, 不落盘)
+                self.memory_buffer.append(event.model_dump(mode='json'))
+                if len(self.memory_buffer) > self.MEMORY_BUFFER_MAX:
+                    del self.memory_buffer[:len(self.memory_buffer) - self.MEMORY_BUFFER_MAX]
+                # v1.3.0 方案B: 仅落盘模式写文件
+                if self.file_enabled:
+                    self._write(event)
+                # audit 频道实时推送 (钩子异常不影响主流程)
                 if self._broadcast_hook is not None:
                     try:
                         import asyncio as _aio
@@ -174,13 +197,19 @@ class AuditLogger:
             await _aio.sleep(3600)
 
     def _write(self, event: AuditEvent):
-        self.logger.info(event.model_dump_json())
+        if self.file_enabled:
+            self.logger.info(event.model_dump_json())
 
     async def log_event(self, event: AuditEvent):
         try:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
-            self._write(event)
+            # 队列满: 丢弃最旧事件保持实时流 (不阻塞、不落盘)
+            try:
+                self._queue.get_nowait()
+                self._queue.put_nowait(event)
+            except Exception:
+                pass
 
     # ========== 便捷方法 ==========
 

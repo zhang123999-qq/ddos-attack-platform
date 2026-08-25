@@ -38,6 +38,7 @@ class Orchestrator:
             return
         await node_commander.start()
         await self.node_registry.start()
+        await self.executor.start()
         await audit_logger.start()
         self._started = True
         logger.info("orchestrator_started")

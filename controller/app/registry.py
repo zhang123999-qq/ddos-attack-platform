@@ -101,7 +101,16 @@ class NodeRegistry:
 
 
 class AttackExecutor:
-    """攻击执行器 - CRIT-1 修复后通过 NodeCommander 真正下发指令"""
+    """攻击执行器 - CRIT-1 修复后通过 NodeCommander 真正下发指令
+
+    v1.3.0 方案C1: 权威状态机 — 每场攻击维护 status/started_at/finished_at,
+    REST 列表与详情统一输出, WebUI 不再依赖易丢失的 WS 事件推断状态。
+    v1.3.0 方案B2: 结果表 TTL — 攻击结束后保留 RESULT_TTL_MINUTES 分钟供查看,
+    后台任务定期清理, 防止内存无限增长。
+    """
+
+    RESULT_TTL_MINUTES = 60
+    PRUNE_INTERVAL_SECONDS = 60
 
     def __init__(self, node_registry: NodeRegistry, rate_limiter: RateLimiter, target_validator: TargetValidator):
         self.node_registry = node_registry
@@ -110,18 +119,75 @@ class AttackExecutor:
         self._active_attacks: Dict[str, AttackCommand] = {}
         self._attack_results: Dict[str, Dict[str, AttackResult]] = defaultdict(dict)
         self._attack_node_map: Dict[str, List[str]] = {}  # attack_id → [node_ids]
+        # C1 状态机: attack_id → {status, started_at, finished_at, stop_reason}
+        self._attack_meta: Dict[str, Dict[str, Any]] = {}
         self._emergency_stop = asyncio.Event()
         self._lock = asyncio.Lock()
         self._bg_tasks: set = set()  # 持有 fire-and-forget 任务引用, 防止被 GC
+        self._prune_task: Optional[asyncio.Task] = None
+
+    async def start(self):
+        """B2: 启动结果表 TTL 清理循环"""
+        if self._prune_task is None or self._prune_task.done():
+            self._prune_task = asyncio.create_task(self._prune_loop())
+
+    def _now_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    async def _prune_loop(self):
+        while True:
+            try:
+                await asyncio.sleep(self.PRUNE_INTERVAL_SECONDS)
+                await self._prune_finished()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("result_prune_error", error=str(e))
+
+    async def _prune_finished(self):
+        """清理超过 TTL 的已完成记录与结果; 兜底回收超时未终态的僵尸攻击"""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=self.RESULT_TTL_MINUTES)
+        async with self._lock:
+            expired = [
+                aid for aid, meta in self._attack_meta.items()
+                if meta.get("finished_at") and meta["finished_at"] < cutoff
+            ]
+            for aid in expired:
+                self._attack_meta.pop(aid, None)
+                self._active_attacks.pop(aid, None)
+                self._attack_node_map.pop(aid, None)
+                self._attack_results.pop(aid, None)
+            # 僵尸兜底: running 但已超过 duration + 宽限期且从未收到节点终态
+            for aid, meta in list(self._attack_meta.items()):
+                if meta.get("status") != "running":
+                    continue
+                started = meta.get("started_at_dt")
+                if not started:
+                    continue
+                cmd = self._active_attacks.get(aid)
+                max_dur = (cmd.params.duration if cmd else 3600) + 120
+                if datetime.now(timezone.utc) - started > timedelta(seconds=max_dur):
+                    meta.update({"status": "stopped", "finished_at": self._now_iso()})
+                    logger.info("zombie_attack_finalized", attack_id=aid)
+            if expired:
+                logger.info("results_pruned", count=len(expired), ttl_minutes=self.RESULT_TTL_MINUTES)
+
+    def _meta_view(self, attack_id: str) -> Dict[str, Any]:
+        meta = self._attack_meta.get(attack_id) or {}
+        return {
+            "status": meta.get("status", "unknown"),
+            "started_at": meta.get("started_at"),
+            "finished_at": meta.get("finished_at"),
+            "stop_reason": meta.get("stop_reason"),
+        }
 
     async def execute_attack(self, command: AttackCommand) -> Dict[str, Any]:
         """执行攻击指令"""
-        # 1. 验证目标
+        # 1. 目标验证 — v1.3.0 方案A: 域名/IP 不做限制; 仅拒绝未覆盖的场景占位符
         if not self.target_validator.is_allowed(command.params.target):
-            await audit_logger.log_target_validation_failure(
-                "controller", str(command.params.target.ip), "Target not in allowlist"
+            raise ValueError(
+                f"Placeholder target {command.params.target.ip} must be overridden before launch"
             )
-            raise ValueError(f"Target {command.params.target.ip} not in allowed CIDRs")
 
         # 2. 选择目标节点
         if command.node_ids:
@@ -159,6 +225,15 @@ class AttackExecutor:
             self._active_attacks[attack_id] = command
             self._attack_results[attack_id] = {}
             self._attack_node_map[attack_id] = [n.node_id for n in target_nodes]
+            # C1: 记录权威状态
+            now = datetime.now(timezone.utc)
+            self._attack_meta[attack_id] = {
+                "status": "running",
+                "started_at": now.isoformat(),
+                "started_at_dt": now,
+                "finished_at": None,
+                "stop_reason": None,
+            }
 
         await audit_logger.log_attack_start("controller", command, [n.node_id for n in target_nodes])
 
@@ -189,11 +264,16 @@ class AttackExecutor:
             send_results.append({"node_id": node.node_id, "success": success})
 
         if not any(r["success"] for r in send_results):
-            # 全部失败: 回收注册表中的孤儿攻击记录 (配额已在逐节点失败时回收)
+            # 全部失败: 记录 failed 终态 (保留记录供 UI 显示), 清理运行表
             async with self._lock:
                 self._active_attacks.pop(attack_id, None)
                 self._attack_node_map.pop(attack_id, None)
                 self._attack_results.pop(attack_id, None)
+                meta = self._attack_meta.get(attack_id)
+                if meta:
+                    meta.update({"status": "failed",
+                                 "finished_at": self._now_iso(),
+                                 "stop_reason": "command delivery failed"})
             raise RuntimeError("Failed to deliver command to any node")
 
         return {
@@ -211,6 +291,12 @@ class AttackExecutor:
                 return {"stopped": False, "reason": "attack not found"}
 
             target_node_ids = self._attack_node_map.get(attack_id, [])
+            # C1: stopping → stopped (停止指令发出即视为终态, 节点终态结果随后合并计数)
+            meta = self._attack_meta.get(attack_id)
+            if meta and meta.get("status") in ("running", "starting", "launching"):
+                meta["status"] = "stopped"
+                meta["finished_at"] = self._now_iso()
+                meta["stop_reason"] = reason
 
         # 并行发送停止指令
         tasks = [node_commander.send_stop_command(nid, attack_id) for nid in target_node_ids]
@@ -248,6 +334,11 @@ class AttackExecutor:
             for aid in active_ids:
                 self._active_attacks.pop(aid, None)
                 self._attack_node_map.pop(aid, None)
+                meta = self._attack_meta.get(aid)
+                if meta:
+                    meta.update({"status": "emergency_stopped",
+                                 "finished_at": self._now_iso(),
+                                 "stop_reason": f"emergency: {command.reason}"})
 
         await audit_logger.log_emergency_stop(command.issued_by, command.reason, all_target_nodes)
         logger.critical("emergency_stop_executed",
@@ -264,45 +355,62 @@ class AttackExecutor:
         return self._emergency_stop.is_set()
 
     def collect_result(self, result: AttackResult):
-        # BUG-19 服务端兜底: 同一 (attack, node) 的后到结果若计数更小
-        # (节点 stop 竞态补发的空占位), 保留累计值更大的那份统计
+        """接收节点结果 (终态或 C3 周期快照), 合并计数并维护状态机"""
+        # C3 周期快照: 节点每 2s 上报 status=running 的部分结果。
+        # 与已有结果按"逐字段取大"合并, 保证 UI 计数单调递增且不被旧快照回退
         existing = self._attack_results[result.attack_id].get(result.node_id)
-        if existing is not None and result.total_requests < existing.total_requests:
+        if existing is not None:
             result = result.model_copy(update={
-                "total_requests": existing.total_requests,
+                "total_requests": max(result.total_requests, existing.total_requests),
                 "successful_requests": max(result.successful_requests, existing.successful_requests),
                 "failed_requests": max(result.failed_requests, existing.failed_requests),
                 "bytes_sent": max(result.bytes_sent, existing.bytes_sent),
                 "bytes_received": max(result.bytes_received, existing.bytes_received),
             })
+        # BUG-19 兜底保留: 快照流下后到终态计数必然 ≥ 已有值, 上述 max 已覆盖
         self._attack_results[result.attack_id][result.node_id] = result
+
+        # C1: 节点上报终态时推进状态机 (running 快照不改变状态)
+        terminal = {AttackStatus.STOPPED, AttackStatus.FAILED, AttackStatus.EMERGENCY_STOPPED}
+        if result.status in terminal:
+            meta = self._attack_meta.get(result.attack_id)
+            if meta and meta.get("status") == "running":
+                expected = set(self._attack_node_map.get(result.attack_id) or [])
+                reported_terminal = {
+                    nid for nid, r in self._attack_results[result.attack_id].items()
+                    if r.status in terminal
+                }
+                if not expected or expected <= reported_terminal:
+                    meta.update({"status": "completed",
+                                 "finished_at": self._now_iso()})
+
         task = asyncio.create_task(audit_logger.log_attack_result(result))
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
 
     def get_attack_status(self, attack_id: str) -> Optional[Dict[str, Any]]:
-        # 已停止的攻击仍可查询历史结果 (stop_attack 只清 active 表, 保留 results)
+        """攻击详情 — 含权威状态 (C1); 已结束攻击在 TTL 窗口内仍可查询"""
         command = self._active_attacks.get(attack_id)
         results = self._attack_results.get(attack_id, {})
-        if command is None and not results:
+        meta = self._attack_meta.get(attack_id)
+        if command is None and not results and meta is None:
             return None
-        if command is not None:
-            return {
-                "attack_id": attack_id,
-                "command": command.model_dump(mode='json'),
-                "results": {nid: r.model_dump(mode='json') for nid, r in results.items()},
-                "node_count": len(results)
-            }
-        # 仅存历史结果 (已停止): 返回最小视图
-        return {
+        view = {
             "attack_id": attack_id,
-            "command": None,
+            "command": command.model_dump(mode='json') if command else None,
             "results": {nid: r.model_dump(mode='json') for nid, r in results.items()},
             "node_count": len(results),
-            "stopped": True,
         }
+        view.update(self._meta_view(attack_id))
+        return view
 
     def get_all_active(self) -> List[Dict[str, Any]]:
-        return [self.get_attack_status(aid) for aid in self._active_attacks]
+        """全部攻击 (进行中 + TTL 窗口内的已结束记录), 每条含权威状态 (C2)"""
+        out = []
+        for aid in list(self._attack_meta.keys()):
+            view = self.get_attack_status(aid)
+            if view is not None:
+                out.append(view)
+        return out
 
 

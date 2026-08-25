@@ -1,0 +1,40 @@
+feat: unrestricted targets (domain+IP), no attack-log persistence, live feedback — v1.3.0
+
+Plan A/B/C implemented per approved proposal.
+
+A. Target restrictions removed:
+- TargetSpec (controller+attacker) accepts IPv4/IPv6/CIDR/RFC1123
+  domains; is_hostname() added for raw-packet attacks
+- Controller TargetValidator now allow-all (placeholder guard kept);
+  whitelist rejection path deleted from execute_attack
+- Node SafeAttackBase pre-flight drops CIDR check (emergency stop +
+  CAP_NET_RAW checks retained); ALLOWED_TARGET_CIDRS env ignored
+- scapy attacks (syn_flood/udp_flood/udp_reflection) resolve hostnames
+  via getaddrinfo before packet crafting
+
+B. Attack logs not persisted:
+- AuditLogger file writing disabled by default (AUDIT_FILE_ENABLED,
+  default false): no JSONL, no rotation, no retention task
+- Events flow to WebSocket broadcast + in-memory ring buffer (500)
+- Registry results pruned after 60-min TTL (fixes unbounded growth);
+  zombie running attacks finalized past duration+120s
+- Installer config: AUDIT_FILE_ENABLED=false, no whitelist prompt
+
+C. Live feedback chain (root causes of "30997/0/30997, empty status"):
+- C1 authoritative state machine in AttackExecutor (status/started_at/
+  finished_at/stop_reason on every attack view)
+- C2 GET /attacks returns active + finished-within-TTL, each with status
+- C3 nodes push progress snapshots every 2s via existing /results API;
+  controller merges monotonic counters and relays over WS
+- C4 frontend normalizes REST+WS into one shape; mergeResult() prevents
+  snapshot regression; 1s progress repaint while running
+- C5 WS attack_start carries full command + status
+- C6 errors capped at 50 samples + error_counts aggregate; UI shows
+  "ClientConnectorError×N" inline summary
+- C7 operations column: 停止 for running, 清除 for finished rows
+
+Verified end-to-end in WSL fresh deploy: V1-V10 all pass (whitelisted-
+IP launch accepted, domain target resolves+hits, mid-run counters
+visible at 4s, stopped status after stop, error summary present,
+list survives refresh with status, audit file not recreated).
+Tests: controller 18 passed, attacker 7 passed.

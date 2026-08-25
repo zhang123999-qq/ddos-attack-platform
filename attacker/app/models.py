@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Literal
-from pydantic import BaseModel, Field
+from typing import Any, ClassVar, Dict, List, Optional, Literal
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
 import ipaddress
+import re
 
 
 class AttackType(str, Enum):
@@ -34,11 +35,46 @@ class AttackStatus(str, Enum):
 
 
 class TargetSpec(BaseModel):
+    # v1.3.0 方案A: 接受 IPv4/IPv6/CIDR/域名, 不再做目标限制
     ip: str
     port: int = 80
     protocol: Literal["tcp", "udp"] = "tcp"
     path: str = "/"
     host_header: Optional[str] = None
+
+    HOSTNAME_RE: ClassVar[re.Pattern] = re.compile(
+        r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$"
+    )
+
+    @field_validator('ip')
+    @classmethod
+    def validate_target(cls, v: str) -> str:
+        try:
+            ipaddress.ip_address(v)
+            return v
+        except ValueError:
+            pass
+        try:
+            ipaddress.ip_network(v, strict=False)
+            return v
+        except ValueError:
+            pass
+        if cls.HOSTNAME_RE.match(v) and "." in v.rstrip("."):
+            return v.lower().rstrip(".")
+        raise ValueError(f"Invalid target host (IP/CIDR/domain): {v}")
+
+    def is_hostname(self) -> bool:
+        """目标是域名 (非 IP/CIDR) — scapy 类攻击需先解析"""
+        try:
+            ipaddress.ip_address(self.ip)
+            return False
+        except ValueError:
+            pass
+        try:
+            ipaddress.ip_network(self.ip, strict=False)
+            return False
+        except ValueError:
+            return True
 
     @property
     def url(self) -> str:

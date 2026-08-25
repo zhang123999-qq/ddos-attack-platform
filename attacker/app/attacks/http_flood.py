@@ -160,11 +160,19 @@ class HTTPFloodAttack(SafeAttackBase):
             except aiohttp.ClientError as e:
                 self.result.total_requests += 1
                 self.result.failed_requests += 1
-                self.result.errors.append(f"ClientError: {e}")
+                self._record_error(f"ClientError: {e}")
+                self._tally_error(e)
             except Exception as e:
                 self.result.total_requests += 1
                 self.result.failed_requests += 1
-                self.result.errors.append(f"Error: {e}")
+                self._record_error(f"Error: {e}")
+                self._tally_error(e)
+
+    def _tally_error(self, e: Exception):
+        """C6: 错误聚合计数 — UI 显示 'Connection refused ×N' 摘要"""
+        key = type(e).__name__
+        counts = self.result.metrics.setdefault("error_counts", {})
+        counts[key] = counts.get(key, 0) + 1
 
     async def _cleanup(self):
         # 输出有界采样的分位数摘要 (样本上限 LATENCY_SAMPLE_MAX)

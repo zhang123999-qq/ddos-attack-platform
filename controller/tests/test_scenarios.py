@@ -76,13 +76,18 @@ def test_overrides_reach_executor():
 
 
 def test_cidr_subnet_semantics():
+    """v1.3.0 方案A: 目标不限 — TargetValidator 恒放行 (占位符除外), 域名合法"""
     tv = TargetValidator(["10.100.0.0/16"])
     assert tv.is_allowed(TargetSpec(ip="10.100.5.5")) is True
-    assert tv.is_allowed(TargetSpec(ip="10.100.5.0/24")) is True   # 子集放行
-    assert tv.is_allowed(TargetSpec(ip="10.100.0.0/8")) is False   # 超集拒绝(旧实现崩溃)
-    assert tv.is_allowed(TargetSpec(ip="192.168.1.1")) is False
-    assert tv.is_allowed(TargetSpec(ip="TARGET_IP_PLACEHOLDER")) is False
-    print("CIDR SUBNET SEMANTICS OK")
+    assert tv.is_allowed(TargetSpec(ip="10.100.5.0/24")) is True    # CIDR 放行
+    assert tv.is_allowed(TargetSpec(ip="192.168.1.1")) is True      # 不再受白名单限制
+    assert tv.is_allowed(TargetSpec(ip="example.com")) is True      # 域名放行
+    assert tv.is_allowed(TargetSpec(ip="target.example.com")) is True
+    assert tv.is_allowed(TargetSpec(ip="TARGET_IP_PLACEHOLDER")) is False  # 占位符仍拒绝
+    # is_hostname 判定
+    assert TargetSpec(ip="example.com").is_hostname() is True
+    assert TargetSpec(ip="10.100.5.5").is_hostname() is False
+    print("CIDR SUBNET SEMANTICS OK (restrictions disabled, domains accepted)")
 
 
 if __name__ == "__main__":

@@ -72,8 +72,7 @@ echo -e "${BLUE}  仅限授权内网红队教学演练使用                  ${
 echo -e "${BLUE}==============================================${NC}"
 read -rp "WebUI/API 监听端口 [8443]: " INPUT_PORT
 CONTROLLER_PORT="${INPUT_PORT:-8443}"
-read -rp "目标白名单网段, 逗号分隔 [127.0.0.0/8]: " INPUT_CIDRS
-ALLOWED_CIDRS="${INPUT_CIDRS:-127.0.0.0/8}"
+# v1.3.0 方案A: 目标不限 — 不再询问白名单网段
 read -rp "SHARED_SECRET [留空自动生成 64 位hex]: " INPUT_SECRET
 if [[ -z "$INPUT_SECRET" ]]; then
     SHARED_SECRET=$(openssl rand -hex 32)
@@ -128,7 +127,7 @@ services:
     environment:
       - SHARED_SECRET=${SHARED_SECRET}
       - REQUIRE_SHARED_SECRET=true
-      - ALLOWED_TARGET_CIDRS=${ALLOWED_CIDRS}
+      - AUDIT_FILE_ENABLED=false
       - CONTROLLER_PORT=8443
     volumes:
       - ./certs:/certs
@@ -160,9 +159,8 @@ CONTROLLER_HOST=0.0.0.0
 CONTROLLER_PORT=8443
 SHARED_SECRET=${SHARED_SECRET}
 REQUIRE_SHARED_SECRET=true
-ALLOWED_TARGET_CIDRS=${ALLOWED_CIDRS}
 ENABLE_WEB_UI=true
-AUDIT_LOG_PATH=$ETC_DIR/audit.jsonl
+AUDIT_FILE_ENABLED=false
 TLS_CERT_FILE=$CERT_DIR/controller-cert.pem
 TLS_KEY_FILE=$CERT_DIR/controller-key.pem
 TLS_CA_FILE=$CERT_DIR/ca-cert.pem

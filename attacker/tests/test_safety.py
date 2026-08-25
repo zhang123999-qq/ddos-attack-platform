@@ -59,38 +59,33 @@ def test_registry_rejects_unknown_type():
     print("REGISTRY UNKNOWN-TYPE REJECTION OK")
 
 
-def test_whitelist_blocks_non_whitelisted_target():
-    """节点侧白名单兜底: 默认兜底仅回环 — 打外网 IP 必须被 pre-flight 拦截"""
-    os.environ["ALLOWED_TARGET_CIDRS"] = "127.0.0.0/8"
-    SafeAttackBase.ALLOWED_TARGET_CIDRS = ["127.0.0.0/8"]
-    from ipaddress import ip_network
-    SafeAttackBase._allowed_networks = [ip_network("127.0.0.0/8")]
+def test_no_target_restrictions():
+    """v1.3.0 方案A: 目标不限 — 任意 IP/域名均放行, 白名单校验已移除"""
+    os.environ["ALLOWED_TARGET_CIDRS"] = ""
 
     async def run():
         inst = AttackRegistry.create(_cmd(AttackType.HTTP_FLOOD, ip="8.8.8.8"))
         try:
-            await inst.execute()
-            return False
-        except PermissionError:
-            return True
-        except Exception:
-            return True  # 任何安全异常均可接受, 唯独不允许执行
+            # execute 会真正发起请求 (8.8.8.8:80 可能超时/失败) — 只要不因白名单拦截即通过
+            await asyncio.wait_for(inst.execute(), timeout=10)
+            return "executed"
+        except Exception as e:
+            msg = str(e).lower()
+            if "allowed cidrs" in msg or "whitelist" in msg or "not in allowed" in msg:
+                return "blocked-by-whitelist"
+            return "executed-with-error"  # 网络/超时类错误 = 校验未拦截
 
-    blocked = asyncio.run(run())
-    assert blocked, "non-whitelisted target MUST be blocked at node side"
-    print("NODE-SIDE WHITELIST BLOCK OK (8.8.8.8 rejected)")
+    outcome = asyncio.run(run())
+    assert outcome != "blocked-by-whitelist", "target restrictions must be removed"
+    print(f"NO TARGET RESTRICTIONS OK (outcome={outcome})")
 
 
-def test_whitelist_allows_loopback():
-    """白名单类方法接口: 回环放行 + 外网拒绝"""
-    from ipaddress import ip_network
+def test_whitelist_classmethod_removed():
+    """v1.3.0 方案A: validate_target 类方法已删除, 环境变量不再生效"""
     cls = http_flood.HTTPFloodAttack
-    cls.ALLOWED_TARGET_CIDRS = ["127.0.0.0/8"]
-    cls._allowed_networks = [ip_network("127.0.0.0/8")]
-    assert cls.validate_target("127.0.0.1") is True
-    assert cls.validate_target("8.8.8.8") is False
-    assert cls.validate_target("not-an-ip") is False
-    print("WHITELIST CLASSMETHOD INTERFACE OK")
+    assert not hasattr(cls, "validate_target"), "validate_target must be removed"
+    assert cls.ALLOWED_TARGET_CIDRS == [] or isinstance(cls.ALLOWED_TARGET_CIDRS, list)
+    print("WHITELIST CLASSMETHOD REMOVED OK")
 
 
 def test_emergency_stop_blocks_execution():

@@ -11,6 +11,22 @@ from app.models import AttackCommand, AttackType, AttackStatus
 
 logger = structlog.get_logger(__name__)
 
+
+async def _resolve_host(host: str) -> str:
+    """v1.3.0 方案A4: 域名目标解析为数值 IP; IP/CIDR 原样返回 (CIDR 由调用方语义处理)"""
+    import ipaddress
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    loop = asyncio.get_running_loop()
+    infos = await loop.getaddrinfo(host, None, family=asyncio.AF_INET, type=asyncio.SOCK_STREAM)
+    resolved = infos[0][4][0]
+    logger.info("target_hostname_resolved", host=host, ip=resolved)
+    return resolved
+
+
 try:
     from scapy.all import IP, TCP, send, RandShort, RandIP, RandInt, conf
     SCAPY_AVAILABLE = True
@@ -63,7 +79,8 @@ class SYNFloodAttack(SafeAttackBase):
             raise SafetyError("scapy not available")
 
         target = self.params.target
-        target_ip = target.ip
+        # v1.3.0 方案A4: 域名目标先解析为数值 IP (scapy 造包需要)
+        target_ip = await _resolve_host(target.ip)
         target_port = target.port
         interface = self.params.interface or conf.iface
         spoof_cidr = self.params.spoof_cidr or "10.0.0.0/8"

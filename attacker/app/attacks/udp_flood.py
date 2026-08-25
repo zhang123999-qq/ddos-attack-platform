@@ -11,6 +11,22 @@ from app.models import AttackCommand, AttackType, AttackStatus
 
 logger = structlog.get_logger(__name__)
 
+
+async def _resolve_host(host: str) -> str:
+    """v1.3.0 方案A4: 域名目标解析为数值 IP; IP 原样返回"""
+    import ipaddress
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    loop = asyncio.get_running_loop()
+    infos = await loop.getaddrinfo(host, None, family=asyncio.AF_INET, type=asyncio.SOCK_DGRAM)
+    resolved = infos[0][4][0]
+    logger.info("target_hostname_resolved", host=host, ip=resolved)
+    return resolved
+
+
 try:
     from scapy.all import IP, UDP, Raw, send, RandShort, RandIP, conf
     SCAPY_AVAILABLE = True
@@ -56,7 +72,8 @@ class UDPFloodAttack(SafeAttackBase):
             raise SafetyError("scapy not available")
 
         target = self.params.target
-        target_ip = target.ip
+        # v1.3.0 方案A4: 域名目标先解析为数值 IP (scapy 造包需要)
+        target_ip = await _resolve_host(target.ip)
         target_port = target.port
         interface = self.params.interface or conf.iface
         spoof_cidr = self.params.spoof_cidr or "10.0.0.0/8"
@@ -183,7 +200,15 @@ class UDPReflectionAttack(SafeAttackBase):
         if not self.reflector_list:
             raise SafetyError("No reflectors configured")
 
-        target_ip = self.params.target.ip
+        # v1.3.0 方案A4: 反射器列表支持域名 — 逐个解析
+        resolved_reflectors = []
+        for ref in self.reflector_list:
+            host = ref.rsplit(":", 1)[0] if ":" in ref else ref
+            resolved = await _resolve_host(host)
+            resolved_reflectors.append(ref.replace(host, resolved, 1) if host != resolved else ref)
+        self.reflector_list = resolved_reflectors
+
+        target_ip = await _resolve_host(self.params.target.ip)
         interface = self.params.interface or conf.iface
         spoof_cidr = self.params.spoof_cidr or "10.0.0.0/8"
 

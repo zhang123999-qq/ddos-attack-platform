@@ -67,9 +67,8 @@ ARTIFACTS_DIR = _find_resource_path(
 async def lifespan(app: FastAPI):
     global orchestrator
 
-    # M-1 修复: 兜底白名单收窄为回环 (原先 10.0.0.0/8 过宽);
-    # 未显式配置时只允许打本机, 真实网段必须在 ALLOWED_TARGET_CIDRS 声明
-    allowed_cidrs = [c.strip() for c in os.getenv("ALLOWED_TARGET_CIDRS", "127.0.0.0/8").split(",")]
+    # v1.3.0 方案A: 目标域名/IP 不做限制 — allowed_cidrs 仅作 Orchestrator 兼容参数, 不再拦截
+    allowed_cidrs: list = []
     global_rps = int(os.getenv("GLOBAL_MAX_RPS", "50000"))
     global_pps = int(os.getenv("GLOBAL_MAX_PPS", "100000"))
     global_concurrent = int(os.getenv("GLOBAL_MAX_CONCURRENT_CONNECTIONS", "100000"))
@@ -89,7 +88,7 @@ async def lifespan(app: FastAPI):
 
     limit_task = asyncio.create_task(broadcast_limits())
 
-    logger.info("controller_started", allowed_cidrs=allowed_cidrs)
+    logger.info("controller_started", target_restrictions="disabled")
 
     yield
 
@@ -270,6 +269,9 @@ async def launch_attack(
             "target_nodes": result.get("target_nodes", []),
             # 进度条数据源: 前端以 started_at 计算已运行百分比
             "started_at": datetime.now(timezone.utc).isoformat(),
+            # v1.3.0 C5/C1: 广播完整命令与权威状态 — 发射瞬间行数据即完整
+            "command": command.model_dump(mode='json'),
+            "status": "running",
         })
         return APIResponse(success=True, data=result, message="Attack launched")
     except ValueError as e:

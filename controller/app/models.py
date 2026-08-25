@@ -35,6 +35,7 @@ class AttackStatus(str, Enum):
 
 
 class TargetSpec(BaseModel):
+    # v1.3.0 方案A: 字段语义扩展为 host — 接受 IPv4/IPv6/CIDR/域名, 不再做目标限制
     ip: str
     port: int = 80
     protocol: Literal["tcp", "udp"] = "tcp"
@@ -44,6 +45,11 @@ class TargetSpec(BaseModel):
     # 场景模板占位符 (如 TARGET_IP_PLACEHOLDER) — 加载期合法, 执行前必须被 overrides 覆盖
     PLACEHOLDER_RE: ClassVar[re.Pattern] = re.compile(r"^[A-Z][A-Z0-9_]*_PLACEHOLDER$")
 
+    # 域名合法性 (RFC 1123): 段 = 字母/数字/连字符, 不以连字符开头结尾; 总长 ≤253
+    HOSTNAME_RE: ClassVar[re.Pattern] = re.compile(
+        r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$"
+    )
+
     @field_validator('ip')
     @classmethod
     def validate_ip(cls, v: str) -> str:
@@ -51,15 +57,34 @@ class TargetSpec(BaseModel):
             return v
         try:
             ipaddress.ip_address(v)
+            return v
         except ValueError:
-            try:
-                ipaddress.ip_network(v, strict=False)
-            except ValueError:
-                raise ValueError(f"Invalid IP or CIDR: {v}")
-        return v
+            pass
+        try:
+            ipaddress.ip_network(v, strict=False)
+            return v
+        except ValueError:
+            pass
+        # 域名: 允许下划线缺失的宽松场景不存在 — 严格 RFC 1123 主机名
+        if cls.HOSTNAME_RE.match(v) and "." in v.rstrip("."):
+            return v.lower().rstrip(".")
+        raise ValueError(f"Invalid target host (IP/CIDR/domain): {v}")
 
     def is_placeholder(self) -> bool:
         return bool(self.PLACEHOLDER_RE.match(self.ip))
+
+    def is_hostname(self) -> bool:
+        """目标是域名 (非 IP/CIDR) — scapy 类攻击需先解析"""
+        try:
+            ipaddress.ip_address(self.ip)
+            return False
+        except ValueError:
+            pass
+        try:
+            ipaddress.ip_network(self.ip, strict=False)
+            return False
+        except ValueError:
+            return True
 
 
 class AttackParams(BaseModel):

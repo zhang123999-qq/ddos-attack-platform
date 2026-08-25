@@ -250,6 +250,8 @@ async def execute_attack(command: AttackCommand) -> AttackResult:
     
     attack_instances[attack_id] = attack_instance
     health_monitor.add_attack(attack_id)
+    # v1.3.0 C3: 注入周期进度上报回调 — 运行期间每 2s 快照上报控制器
+    attack_instance._progress_callback = send_attack_result
     
     # 创建执行任务
     async def run_attack():

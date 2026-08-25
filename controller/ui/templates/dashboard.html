@@ -425,20 +425,33 @@
                     }
                     break;
                 case 'attack_start':
-                    attacks[msg.data.attack_id] = { ...msg.data, status: 'starting', results: {} };
+                    // v1.3.0 C4: 统一形状 — WS start 携带完整 command + 权威 status
+                    attacks[msg.data.attack_id] = {
+                        ...msg.data,
+                        status: msg.data.status || 'running',
+                        results: {}
+                    };
                     renderAttacks();
                     break;
                 case 'attack_update':
-                    if (attacks[msg.data.attack_id]) {
-                        attacks[msg.data.attack_id].results[msg.data.node_id] = msg.data.result;
-                        attacks[msg.data.attack_id].status = 'running';
-                        renderAttacks();
+                    // C3/C4: 周期快照或终态结果 — 合并计数, 不覆盖权威 status (终态除外)
+                    if (!attacks[msg.data.attack_id]) attacks[msg.data.attack_id] = msg.data;
+                    const au = attacks[msg.data.attack_id];
+                    au.results = au.results || {};
+                    au.results[msg.data.node_id] = mergeResult(au.results[msg.data.node_id], msg.data.result);
+                    if (['stopped','completed','failed','emergency_stopped'].includes(msg.data.result?.status)) {
+                        au.status = msg.data.result.status;
+                        if (!au.finished_at) au.finished_at = new Date().toISOString();
+                    } else if (au.status === 'starting') {
+                        au.status = 'running';
                     }
+                    renderAttacks();
                     break;
                 case 'attack_stop':
                     if (attacks[msg.data.attack_id]) {
                         attacks[msg.data.attack_id].status = 'stopped';
                         attacks[msg.data.attack_id].stop_reason = msg.data.reason;
+                        attacks[msg.data.attack_id].finished_at = new Date().toISOString();
                         renderAttacks();
                     }
                     break;
@@ -488,7 +501,19 @@
                     renderNodes();
                 }
                 if (attacksRes.success) {
-                    attacksRes.data.forEach(a => attacks[a.attack_id] = a);
+                    // v1.3.0 C4: REST 列表现在自带权威 status/started_at;
+                    // 合并而非整体替换, 保留 WS 已建立的实时字段
+                    attacksRes.data.forEach(a => {
+                        if (attacks[a.attack_id]) {
+                            const cur = attacks[a.attack_id];
+                            attacks[a.attack_id] = { ...a, ...cur,
+                                status: cur.status || a.status,
+                                results: Object.keys(cur.results || {}).length ? cur.results : (a.results || {})
+                            };
+                        } else {
+                            attacks[a.attack_id] = { ...a, results: a.results || {} };
+                        }
+                    });
                     renderAttacks();
                 }
                 if (scenariosRes.success) {
@@ -669,6 +694,35 @@
             }[c]));
         }
 
+        // v1.3.0 C3: 周期快照合并 — 计数单调递增, 不被旧快照回退
+        function mergeResult(prev, next) {
+            if (!prev) return next;
+            return {
+                ...next,
+                total_requests: Math.max(next.total_requests || 0, prev.total_requests || 0),
+                successful_requests: Math.max(next.successful_requests || 0, prev.successful_requests || 0),
+                failed_requests: Math.max(next.failed_requests || 0, prev.failed_requests || 0),
+                bytes_sent: Math.max(next.bytes_sent || 0, prev.bytes_sent || 0),
+                bytes_received: Math.max(next.bytes_received || 0, prev.bytes_received || 0)
+            };
+        }
+
+        // v1.3.0 C6: 错误摘要 — 提取首条错误 + 聚合计数
+        function errorSummary(a) {
+            const all = Object.values(a.results || {});
+            if (!all.length) return '';
+            const errs = all.flatMap(r => r.errors || []);
+            const counts = {};
+            all.forEach(r => {
+                const ec = (r.metrics && r.metrics.error_counts) || {};
+                for (const [k, v] of Object.entries(ec)) counts[k] = Math.max(counts[k] || 0, v);
+            });
+            const parts = [];
+            for (const [k, v] of Object.entries(counts).slice(0, 2)) parts.push(`${k}×${v}`);
+            if (!parts.length && errs.length) parts.push(errs[0].slice(0, 60));
+            return parts.join(', ');
+        }
+
         function renderAttacks() {
             const tbody = document.getElementById('activeAttacksTable');
             const recentTbody = document.getElementById('recentAttacks');
@@ -677,33 +731,44 @@
 
             // 所有攻击
             tbody.innerHTML = attackEntries.map(([id, a]) => {
-                const totalReq = Object.values(a.results || {}).reduce((sum, r) => sum + r.total_requests, 0);
-                const totalSucc = Object.values(a.results || {}).reduce((sum, r) => sum + r.successful_requests, 0);
-                const totalFail = Object.values(a.results || {}).reduce((sum, r) => sum + r.failed_requests, 0);
+                const totalReq = Object.values(a.results || {}).reduce((sum, r) => sum + (r.total_requests || 0), 0);
+                const totalSucc = Object.values(a.results || {}).reduce((sum, r) => sum + (r.successful_requests || 0), 0);
+                const totalFail = Object.values(a.results || {}).reduce((sum, r) => sum + (r.failed_requests || 0), 0);
                 const nodeCount = Object.keys(a.results || {}).length;
 
-                // 进度起点: 优先 WS attack_start 附带的 started_at, 回退本条记录时间戳
-                const startedAt = a.started_at || a.timestamp || null;
-                const duration = a.command?.params?.duration || (a.results && a.command ? null : null);
+                // v1.3.0 C4: 进度 = (now - started_at) / duration; 后端权威字段保证刷新后仍有效
+                const startedAt = a.started_at || null;
+                const duration = a.command?.params?.duration || null;
+                const isLive = ['running', 'starting', 'stopping'].includes(a.status);
                 let progress = 0;
-                if (startedAt && a.command?.params?.duration) {
+                if (startedAt && duration) {
                     progress = Math.min(100, Math.max(0,
-                        Math.round((Date.now() - new Date(startedAt).getTime()) / 1000 / a.command.params.duration * 100)));
+                        Math.round((Date.now() - new Date(startedAt).getTime()) / 1000 / duration * 100)));
+                }
+                if (!isLive) progress = a.status === 'completed' ? 100 : progress;
+
+                // C6: 错误摘要行内展示
+                const errSummary = errorSummary(a);
+                const errCell = totalFail > 0 && errSummary
+                    ? `<div style="color:#e05252;font-size:0.72rem;margin-top:2px;" title="${esc(errSummary)}">${esc(errSummary)}</div>` : '';
+
+                // C7: 操作列 — running 可停止, 已结束可清除
+                let ops = '';
+                if (isLive) {
+                    ops = `<button class="btn btn-danger" onclick="stopAttack('${encodeURIComponent(id)}')" style="padding:0.25rem 0.5rem;font-size:0.75rem;">停止</button>`;
+                } else if (a.status && a.status !== 'unknown') {
+                    ops = `<button class="btn" onclick="dismissAttack('${encodeURIComponent(id)}')" style="padding:0.25rem 0.5rem;font-size:0.75rem;">清除</button>`;
                 }
 
                 return `
                     <tr>
                         <td>${esc(id)}</td>
-                        <td>${esc(a.command?.attack_type || a.attack_type)}</td>
-                        <td>${esc(a.command?.params?.target?.ip) || 'N/A'}</td>
-                        <td><span class="badge badge-${esc(a.status)}">${esc(a.status)}</span></td>
+                        <td>${esc(a.command?.attack_type || a.attack_type || a.type || '')}</td>
+                        <td>${esc(a.command?.params?.target?.ip || a.target?.ip) || 'N/A'}${a.command?.params?.target?.port ? ':' + esc(a.command.params.target.port) : ''}</td>
+                        <td><span class="badge badge-${esc(a.status)}">${esc(a.status || '—')}</span></td>
                         <td>${progress}%</td>
-                        <td>${totalReq} / ${totalSucc} / ${totalFail}</td>
-                        <td>
-                            ${(a.status === 'running' || a.status === 'starting') ?
-                                `<button class="btn btn-danger" onclick="stopAttack('${encodeURIComponent(id)}')" style="padding:0.25rem 0.5rem;font-size:0.75rem;">停止</button>` :
-                                ''}
-                        </td>
+                        <td>${totalReq} / ${totalSucc} / ${totalFail}${errCell}</td>
+                        <td>${ops}</td>
                     </tr>
                 `;
             }).join('');
@@ -800,12 +865,32 @@
             if (!confirm(`确定停止攻击 ${attackId}?`)) return;
             try {
                 const res = await apiPost(`/attacks/${attackId}/stop`, {});
-                if (res.success) alert('停止指令已发送');
+                if (res.success) {
+                    if (attacks[attackId]) {
+                        attacks[attackId].status = 'stopped';
+                        attacks[attackId].finished_at = new Date().toISOString();
+                        renderAttacks();
+                    }
+                    alert('停止指令已发送');
+                }
                 else alert(`停止失败: ${apiError(res)}`);
             } catch (err) {
                 alert(`请求错误: ${err.message}`);
             }
         }
+
+        // v1.3.0 C7: 清除已结束攻击的表格行 (仅前端视图, 不影响服务端 TTL)
+        function dismissAttack(attackId) {
+            delete attacks[decodeURIComponent(attackId)];
+            renderAttacks();
+        }
+
+        // v1.3.0 C4: 运行中攻击的进度条每秒重绘
+        setInterval(() => {
+            if (Object.values(attacks).some(a => ['running', 'starting'].includes(a.status))) {
+                renderAttacks();
+            }
+        }, 1000);
 
         async function triggerEmergencyStop() {
             const reason = prompt('熔断原因:');

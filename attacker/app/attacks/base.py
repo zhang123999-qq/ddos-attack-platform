@@ -3,11 +3,9 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-import ipaddress
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
-from ipaddress import ip_network, ip_address
 import structlog
 
 from app.models import AttackCommand, AttackParams, AttackResult, AttackStatus, AttackType
@@ -66,17 +64,18 @@ class SafeAttackBase(ABC):
     DEFAULT_RPS: int = 1000
     DEFAULT_CONCURRENCY: int = 100
     
-    # 安全配置 (从环境变量加载)
-    ALLOWED_TARGET_CIDRS: List[str] = []
+    # 安全配置
+    ALLOWED_TARGET_CIDRS: List[str] = []  # v1.3.0 方案A: 兼容保留, 不再用于校验
     EMERGENCY_STOP = asyncio.Event()
-    
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        # 自动加载白名单 (M-1 修复: 兜底收窄为回环, 真实网段必须显式声明)
-        cidrs_str = os.getenv("ALLOWED_TARGET_CIDRS", "127.0.0.0/8")
-        cls.ALLOWED_TARGET_CIDRS = [c.strip() for c in cidrs_str.split(",") if c.strip()]
-        cls._allowed_networks = [ip_network(c, strict=False) for c in cls.ALLOWED_TARGET_CIDRS]
-        logger.info("attack_class_loaded", name=cls.NAME, allowed_cidrs=cls.ALLOWED_TARGET_CIDRS)
+        # v1.3.0 方案A: 白名单不再生效, 仅记录环境变量值供诊断
+        cls.ALLOWED_TARGET_CIDRS = [
+            c.strip() for c in os.getenv("ALLOWED_TARGET_CIDRS", "").split(",") if c.strip()
+        ]
+        logger.info("attack_class_loaded", name=cls.NAME,
+                    target_restrictions="disabled")
     
     def __init__(self, command: AttackCommand):
         self.command = command
@@ -101,36 +100,31 @@ class SafeAttackBase(ABC):
         self._stop_event = asyncio.Event()
         self._tasks: List[asyncio.Task] = []
         self._start_time: Optional[float] = None
+        # v1.3.0 C3: 周期进度上报回调 (由 main.py 注入 send_attack_result)
+        self._progress_callback = None
+        # v1.3.0 C6: 错误封顶 — 防止全失败攻击刷爆内存
+        self.ERROR_LIST_MAX = 50
     
     # ========== 安全检查 (必须在 execute 前调用) ==========
-    
-    @classmethod
-    def validate_target(cls, target_ip: str) -> bool:
-        """验证目标 IP 是否在白名单内"""
-        try:
-            ip = ip_address(target_ip)
-            return any(ip in net for net in cls._allowed_networks)
-        except ValueError:
-            return False
-    
+
     @classmethod
     def pre_flight_check(cls, target: str) -> None:
-        """启动前安全检查 - 失败抛出 SafetyError"""
-        # 1. 目标白名单
-        if not cls.validate_target(target):
-            raise SafetyError(f"Target {target} not in allowed CIDRs: {cls.ALLOWED_TARGET_CIDRS}")
-        
-        # 2. 全局熔断
+        """启动前安全检查 - 失败抛出 SafetyError
+
+        v1.3.0 方案A: 目标域名/IP 不做限制 — 白名单校验移除。
+        仍保留: 全局熔断开关、root/CAP_NET_RAW 权限检查、scapy 可用性检查。
+        """
+        # 1. 全局熔断
         if cls.EMERGENCY_STOP.is_set():
             raise SafetyError("Global emergency stop is active")
-        
-        # 3. 权限检查
+
+        # 2. 权限检查
         if cls.REQUIRES_ROOT:
             # Windows 无 geteuid — 视为非 root 环境交由上层容器/capability 控制
             euid = getattr(os, "geteuid", None)
             if euid is not None and euid != 0:
                 raise SafetyError(f"{cls.NAME} requires root/CAP_NET_RAW")
-        
+
         logger.info("pre_flight_check_passed", attack=cls.NAME, target=target)
     
     # ========== 生命周期 ==========
@@ -144,29 +138,70 @@ class SafeAttackBase(ABC):
         self._start_time = time.monotonic()
         self._stop_event.clear()
         
+        # v1.3.0 C3: 周期进度上报任务 (每 2s 快照 → 控制器 → WebUI 实时计数)
+        reporter = asyncio.create_task(self._progress_reporter()) if self._progress_callback else None
+        
         try:
             # 子类实现具体攻击逻辑
             await self._run()
             self.result.status = AttackStatus.STOPPED
         except SafetyError as e:
             self.result.status = AttackStatus.FAILED
-            self.result.errors.append(f"Safety: {e}")
+            self._record_error(f"Safety: {e}")
             logger.warning("attack_safety_error", attack_id=self.attack_id, error=str(e))
         except asyncio.CancelledError:
             self.result.status = AttackStatus.EMERGENCY_STOPPED
-            self.result.errors.append("Cancelled by emergency stop")
+            self._record_error("Cancelled by emergency stop")
             logger.warning("attack_emergency_stopped", attack_id=self.attack_id)
         except Exception as e:
             self.result.status = AttackStatus.FAILED
-            self.result.errors.append(f"Runtime: {e}")
+            self._record_error(f"Runtime: {e}")
             logger.error("attack_runtime_error", attack_id=self.attack_id, error=str(e), exc_info=True)
         finally:
+            if reporter:
+                reporter.cancel()
+                try:
+                    await reporter
+                except asyncio.CancelledError:
+                    pass
             self.result.stopped_at = datetime.now(timezone.utc)
             if self._start_time:
                 self.result.metrics["duration_seconds"] = time.monotonic() - self._start_time
             await self._cleanup()
         
         return self.result
+
+    def _record_error(self, msg: str):
+        """C6: 错误列表封顶 — 超出后仅保留前 ERROR_LIST_MAX 条样本"""
+        if len(self.result.errors) < self.ERROR_LIST_MAX:
+            self.result.errors.append(msg)
+
+    async def _progress_reporter(self):
+        """C3: 每 2s 上报当前计数快照 (status=running), 让控制器/UI 实时可见"""
+        from app.models import AttackResult as _AR  # 局部引用避免循环导入风险
+        while not self._stop_event.is_set() and not self.EMERGENCY_STOP.is_set():
+            await asyncio.sleep(2)
+            if self._stop_event.is_set() or self.EMERGENCY_STOP.is_set():
+                break
+            if not self._progress_callback:
+                continue
+            snapshot = AttackResult(
+                attack_id=self.attack_id,
+                node_id=self.node_id,
+                status=AttackStatus.RUNNING,
+                started_at=self.result.started_at,
+                total_requests=self.result.total_requests,
+                successful_requests=self.result.successful_requests,
+                failed_requests=self.result.failed_requests,
+                bytes_sent=self.result.bytes_sent,
+                bytes_received=self.result.bytes_received,
+                errors=list(self.result.errors)[:self.ERROR_LIST_MAX],
+                metrics={"snapshot": True},
+            )
+            try:
+                await self._progress_callback(snapshot)
+            except Exception as e:
+                logger.debug("progress_report_failed", attack_id=self.attack_id, error=str(e))
     
     async def stop(self, reason: str = "manual"):
         """停止攻击"""
@@ -213,7 +248,7 @@ class SafeAttackBase(ABC):
                 await worker_func(*args, **kwargs)
             except Exception as e:
                 self.result.failed_requests += 1
-                self.result.errors.append(str(e))
+                self._record_error(str(e))
             else:
                 self.result.total_requests += 1
                 self.result.successful_requests += 1
