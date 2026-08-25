@@ -107,7 +107,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DDoS Attack Platform Controller",
     description="内网红方攻击编排控制中心 - 仅供授权教学演练使用",
-    version="1.2.0",
+    version="1.2.5",
     lifespan=lifespan,
     docs_url="/docs" if os.getenv("ENABLE_WEB_UI", "true").lower() == "true" else None,
     redoc_url=None

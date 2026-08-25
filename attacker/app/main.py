@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DDoS Attack Node",
     description="分布式攻击节点 - 仅供授权内网教学演练使用",
-    version="1.2.0",
+    version="1.2.5",
     lifespan=lifespan
 )
 
