@@ -215,6 +215,8 @@ ATTACK_TYPES=$( [[ "$NODE_TYPE" == "raw" ]] && echo "syn_flood,udp_flood,udp_ref
 LOG_LEVEL=info
 ENV
 chmod 600 "$ETC_DIR/config.env"
+# 修复 F3: 配置文件 owner 必须是 ddos (cat > 是以 root 写, 需显式 chown)
+chown "$SERVICE_USER:$SERVICE_USER" "$ETC_DIR/config.env" 2>/dev/null || true
 
 # ---------- 修复 F2+F3: 修正所有者 + 目录权限 ----------
 # GHA tarball 中文件可能属 build UID (1001:1001), 需 chown 回 ddos

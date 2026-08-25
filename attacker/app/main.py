@@ -20,6 +20,7 @@ import httpx
 
 # 平台版本单一事实源 — 发布时只改这一处
 PLATFORM_VERSION = "1.3.4"
+# v1.3.4: install hardening (F2/F3/F4)
 import structlog
 
 from app.models import (

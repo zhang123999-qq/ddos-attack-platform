@@ -53,10 +53,13 @@ def test_controller_install_chowns_install_dir():
 
 
 def test_controller_install_chmod_config_env():
-    """F3: config.env 必须是 600"""
+    """F3: config.env 必须是 600 ddos:ddos"""
     p = SCRIPTS["controller-install.sh"]
     assert_contains(p, r'chmod\s+600\s+"\$ETC_DIR/config\.env"',
                     why="config.env (含 SHARED_SECRET) 必须 chmod 600")
+    # 必须 chown ddos:ddos config.env (cat > 写入后是 root:root, 需显式 chown)
+    assert_contains(p, r'chown\s+"\$SERVICE_USER:\$SERVICE_USER"\s+"\$ETC_DIR/config\.env"',
+                    why="config.env 需 chown ddos:ddos")
     print("PASS: controller-install.sh chmod 600 config.env (F3)")
 
 
@@ -118,10 +121,12 @@ def test_node_install_chowns_install_dir():
 
 
 def test_node_install_chmod_config_env():
-    """F3: 节点 config.env 必须是 600"""
+    """F3: 节点 config.env 必须是 600 ddos:ddos"""
     p = SCRIPTS["node-install.sh"]
     assert_contains(p, r'chmod\s+600\s+"\$ETC_DIR/config\.env"',
                     why="节点 config.env (含 SHARED_SECRET) 必须 chmod 600")
+    assert_contains(p, r'chown\s+"\$SERVICE_USER:\$SERVICE_USER"\s+"\$ETC_DIR/config\.env"',
+                    why="节点 config.env 需 chown ddos:ddos")
     print("PASS: node-install.sh chmod 600 config.env (F3)")
 
 

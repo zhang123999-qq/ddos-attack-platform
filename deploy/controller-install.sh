@@ -195,6 +195,8 @@ TLS_CA_FILE=$CERT_DIR/ca-cert.pem
 LOG_LEVEL=info
 ENV
 chmod 600 "$ETC_DIR/config.env"
+# 修复 F3: 配置文件 owner 也必须是 ddos (cat > 是以 root 写, 需显式 chown)
+chown "$SERVICE_USER:$SERVICE_USER" "$ETC_DIR/config.env" 2>/dev/null || true
 
 # ---------- systemd ----------
 if [[ -z "${DOCKER_MODE:-}" ]]; then
