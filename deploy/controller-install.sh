@@ -6,7 +6,8 @@
 #
 # 流程: 依赖 → 交互配置(端口/密钥/白名单) → 自签证书(SAN=本机IP) → 下载二进制
 #       → systemd 启动 → 打印 WebUI 地址与添加节点指引
-# 管理: ddos-controller status|logs|restart|stop|uninstall
+# 管理: ddos-controller            # 查看状态 (无参数)
+#       ddos-controller {start|stop|restart|logs|update|uninstall}
 # =============================================================================
 set -euo pipefail
 
@@ -205,14 +206,99 @@ UNIT
 
 cat > "$CTL_PATH" <<'CTL'
 #!/bin/bash
-case "$1" in
-    start)     systemctl start ddos-controller ;;
-    stop)      systemctl stop ddos-controller ;;
-    restart)   systemctl restart ddos-controller ;;
-    status)    systemctl status ddos-controller --no-pager ;;
-    logs)      journalctl -u ddos-controller -f --no-pager -n 100 ;;
-    uninstall) systemctl disable --now ddos-controller 2>/dev/null; rm -f /etc/systemd/system/ddos-controller.service; systemctl daemon-reload; rm -rf /opt/ddos-attack-platform/controller /etc/ddos-controller; echo "uninstalled" ;;
-    *) echo "Usage: ddos-controller {start|stop|restart|status|logs|uninstall}" ;;
+# DDoS Attack Platform — 控制器快捷管理指令
+# 简化: 无参数 = 智能状态; update = 升级到最新 Release
+INSTALL_DIR="/opt/ddos-attack-platform/controller"
+ETC_DIR="/etc/ddos-controller"
+SERVICE_NAME="ddos-controller"
+GITHUB_REPO="zhang123999-qq/ddos-attack-platform"
+
+get_port() {
+    local port
+    port=$(grep -E '^CONTROLLER_PORT=' "$ETC_DIR/config.env" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
+    echo "${port:-8443}"
+}
+
+do_update() {
+    echo "[UPDATE] Checking latest release..."
+    local arch tag tarball tmp latest current
+    case "$(uname -m)" in
+        x86_64) tag="x86_64" ;;
+        aarch64|arm64) tag="arm64" ;;
+        *) echo "[ERROR] Unsupported arch: $(uname -m)"; return 1 ;;
+    esac
+    tarball="ddos-controller-linux-${tag}.tar.gz"
+    tmp=$(mktemp -d)
+    if ! curl -Lfs --max-time 300 -o "$tmp/$tarball" \
+        "https://github.com/${GITHUB_REPO}/releases/latest/download/$tarball"; then
+        echo "[ERROR] Download failed — check network / github reachability"
+        rm -rf "$tmp"; return 1
+    fi
+    # 提取版本号对比 (health 接口 version 字段), 相同则跳过
+    systemctl start "$SERVICE_NAME" 2>/dev/null || true
+    current=$(curl -sk --max-time 3 "https://127.0.0.1:$(get_port)/api/v1/controller-info" 2>/dev/null \
+        | grep -oP '"version":\s*"\K[^"]+' || true)
+    if [[ -n "$current" ]] && bash "$0" status >/dev/null 2>&1; then :; fi
+
+    systemctl stop "$SERVICE_NAME"
+    if ! tar -xzf "$tmp/$tarball" -C "$INSTALL_DIR"; then
+        echo "[ERROR] Extract failed — restarting old version"
+        systemctl start "$SERVICE_NAME"; rm -rf "$tmp"; return 1
+    fi
+    chmod +x "$INSTALL_DIR/ddos-controller"
+    rm -rf "$tmp"
+    systemctl start "$SERVICE_NAME"
+
+    local ok=0
+    for i in $(seq 1 20); do
+        curl -skf --max-time 2 "https://127.0.0.1:$(get_port)/health" >/dev/null 2>&1 && { ok=1; break; }
+        sleep 1
+    done
+    if [[ $ok == 1 ]]; then
+        local newver
+        newver=$(curl -sk --max-time 3 "https://127.0.0.1:$(get_port)/api/v1/controller-info" 2>/dev/null \
+            | grep -oP '"version":\s*"\K[^"]+' || echo '?')
+        echo "[OK] Updated. Running version: ${newver:-unknown}"
+    else
+        echo "[WARN] Service restarted but health not confirmed yet — check: ddos-controller logs"
+    fi
+}
+
+show_status() {
+    local state port pid
+    state=$(systemctl is-active "$SERVICE_NAME" 2>/dev/null)
+    port=$(get_port)
+    case "$state" in
+        active)
+            pid=$(systemctl show "$SERVICE_NAME" -p MainPID --value)
+            local ver nodes
+            ver=$(curl -sk --max-time 3 "https://127.0.0.1:${port}/api/v1/controller-info" 2>/dev/null \
+                | grep -oP '"version":\s*"\K[^"]+' || echo '?')
+            nodes=$(curl -sk --max-time 3 "https://127.0.0.1:${port}/api/v1/nodes" 2>/dev/null \
+                | grep -o '"status": *"online"' | wc -l | tr -d ' ')
+            echo "controller : RUNNING (pid $pid, v${ver})"
+            echo "webui      : https://127.0.0.1:${port}   (LAN: https://$(hostname -I 2>/dev/null | awk '{print $1}'):${port})"
+            echo "nodes      : ${nodes} online"
+            ;;
+        *)
+            echo "controller : STOPPED (${state})"
+            echo "start it   : sudo ddos-controller restart"
+            ;;
+    esac
+}
+
+case "${1:-}" in
+    ""|status)  show_status ;;                       # 简化: 无参数直接看状态
+    s)          show_status ;;
+    start)      systemctl start "$SERVICE_NAME";  show_status ;;
+    stop)       systemctl stop "$SERVICE_NAME";   echo "controller stopped" ;;
+    r|restart)  systemctl restart "$SERVICE_NAME"; sleep 2; show_status ;;
+    logs)       journalctl -u "$SERVICE_NAME" -f --no-pager -n 100 ;;
+    l)          journalctl -u "$SERVICE_NAME" -n 50 --no-pager ;;   # 最近日志 (非跟随)
+    update|u)   do_update ;;
+    uninstall)  systemctl disable --now "$SERVICE_NAME" 2>/dev/null; rm -f /etc/systemd/system/${SERVICE_NAME}.service; systemctl daemon-reload; rm -rf "$INSTALL_DIR" "$ETC_DIR" "/usr/local/bin/$(basename "$0")"; echo "uninstalled" ;;
+    *) echo "Usage: ddos-controller [status|start|stop|restart|logs|update|uninstall]"
+       echo "  (无参数=status, s=status, r=restart, l=最近日志, u=update)" ;;
 esac
 CTL
 chmod +x "$CTL_PATH"
@@ -243,7 +329,8 @@ if [[ $HEALTHY == 1 ]]; then
     log_info " TLS指纹: $FINGERPRINT"
     fi
     log_info " 防火墙放行: ufw allow ${CONTROLLER_PORT}/tcp   # 或对应云安全组"
-    log_info " 管理: ddos-controller {status|logs|restart|uninstall}"
+    log_info " 管理: ddos-controller            # 查看状态"
+    log_info "       ddos-controller {logs|restart|update|uninstall}"
     log_info "=============================================="
 else
     log_error "Health check failed after 30s:"

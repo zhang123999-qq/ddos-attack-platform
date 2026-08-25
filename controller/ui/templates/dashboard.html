@@ -505,6 +505,16 @@
             }
         }
 
+        // 统一提取后端错误信息: 业务失败走 APIResponse.error/message, HTTP 异常走 detail
+        function apiError(res) {
+            if (!res) return '未知错误';
+            return res.detail
+                || res.error
+                || res.message
+                || (typeof res.detail === 'object' ? JSON.stringify(res.detail) : '')
+                || '未知错误';
+        }
+
         async function apiGet(path) {
             const resp = await fetch(`${API_BASE}${path}`, {
                 headers: { 'Authorization': `Bearer ${TOKEN}` }
@@ -550,7 +560,7 @@
             const type = document.getElementById('enrollType').value;
             try {
                 const res = await apiGet(`/nodes/enroll-command?type=${type}&node_id=${encodeURIComponent(nodeId)}`);
-                if (!res.success) { alert(`生成失败: ${res.detail || res.error || 'unknown'}`); return; }
+                if (!res.success) { alert(`生成失败: ${apiError(res)}`); return; }
                 document.getElementById('enrollCommandBox').value = res.data.command;
                 const exp = new Date(res.data.expires_at);
                 document.getElementById('enrollExpiry').textContent =
@@ -587,6 +597,12 @@
             
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
+                // 前置检查: 无在线节点时后端必然拒绝, 直接给出可操作的提示
+                const online = Object.values(nodes).filter(n => n.status === 'online');
+                if (online.length === 0) {
+                    alert('当前没有在线节点。\n请先在「节点管理」生成安装命令并在攻击机上执行, 节点上线后再发起攻击。');
+                    return;
+                }
                 const payload = {
                     attack_type: typeSelect.value,
                     target: {
@@ -610,7 +626,7 @@
                         alert(`攻击已发起: ${res.data.attack_id}`);
                         form.reset();
                     } else {
-                        alert(`发起失败: ${res.error}`);
+                        alert(`发起失败: ${apiError(res)}`);
                     }
                 } catch (err) {
                     alert(`请求错误: ${err.message}`);
@@ -743,7 +759,7 @@
                 if (res.success) {
                     alert(`场景已启动: ${res.data.run_id}`);
                 } else {
-                    alert(`启动失败: ${res.error || res.detail || '未知错误'}`);
+                    alert(`启动失败: ${apiError(res)}`);
                 }
             } catch (err) {
                 alert(`请求错误: ${err.message}`);
@@ -785,7 +801,7 @@
             try {
                 const res = await apiPost(`/attacks/${attackId}/stop`, {});
                 if (res.success) alert('停止指令已发送');
-                else alert(`停止失败: ${res.error}`);
+                else alert(`停止失败: ${apiError(res)}`);
             } catch (err) {
                 alert(`请求错误: ${err.message}`);
             }
@@ -798,7 +814,7 @@
             try {
                 const res = await apiPost('/emergency_stop', { reason, issued_by: issuedBy });
                 if (res.success) alert('熔断已执行');
-                else alert(`熔断失败: ${res.error}`);
+                else alert(`熔断失败: ${apiError(res)}`);
             } catch (err) {
                 alert(`请求错误: ${err.message}`);
             }

@@ -57,6 +57,8 @@ class Orchestrator:
     async def register_node(self, node: NodeInfo) -> NodeInfo:
         registered = await self.node_registry.register(node)
         # CRIT-1: 注册 NodeCommander 通信地址
+        # BUG-18 防护: 节点在受限环境 (容器/netns) 探测不到本机 IP 时会上报 127.0.0.1,
+        # 直接采用会让控制器把攻击指令发给自己。回环地址一律改用请求来源 IP 由调用方覆盖。
         node_commander.register_node(node.node_id, node.ip)
         return registered
 

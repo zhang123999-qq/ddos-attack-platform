@@ -156,6 +156,7 @@ async def ready(orch: Orchestrator = Depends(get_orchestrator)):
 
 @app.post("/api/v1/nodes/register", response_model=APIResponse)
 async def register_node(
+    request: Request,
     node: NodeInfo,
     auth_node: NodeInfo = Depends(verify_node_token),
     orch: Orchestrator = Depends(get_orchestrator)
@@ -163,6 +164,12 @@ async def register_node(
     # S-3 修复: 注册身份必须与已认证的 X-Node-ID 一致, 防止持任一节点凭证伪造他节点
     if node.node_id != auth_node.node_id:
         raise HTTPException(status_code=403, detail="Node ID mismatch with authenticated identity")
+    # BUG-18 防护: 节点上报回环地址时, 用 TLS 连接的真实来源 IP 替代,
+    # 否则控制器会把攻击指令发给自己的 8080 (node_commander 打环回)
+    if node.ip in ("127.0.0.1", "::1", "0.0.0.0", ""):
+        client_host = request.client.host if request.client else node.ip
+        node = node.model_copy(update={"ip": client_host})
+        logger.warning("register_loopback_ip_substituted", node_id=node.node_id, ip=client_host)
     registered = await orch.register_node(node)
     await broadcast_node_update(registered.model_dump(mode='json'))
     return APIResponse(success=True, data=registered.model_dump(mode='json'), message="Node registered")

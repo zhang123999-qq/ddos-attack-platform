@@ -57,7 +57,16 @@ bash <(curl -Ls https://raw.githubusercontent.com/zhang123999-qq/ddos-attack-pla
 ```
 
 交互式配置端口/密钥/白名单后自动完成 systemd 部署，结束时打印 WebUI 地址。
-管理命令：`ddos-controller {status|logs|restart|stop|uninstall}`
+
+**管理快捷指令**（装完即用）：
+
+```bash
+ddos-controller            # 查看状态（版本/WebUI地址/在线节点数）
+ddos-controller logs       # 跟踪日志        (l = 最近 50 行)
+ddos-controller restart    # 重启服务        (r 同义)
+ddos-controller update     # ⭐ 一键升级到最新 Release
+ddos-controller uninstall  # 完整卸载
+```
 
 **添加攻击节点** — 打开 WebUI「节点管理」→「➕ 添加节点」，
 选择类型、填节点 ID，复制生成的命令到目标攻击机以 root 粘贴执行：
@@ -71,7 +80,15 @@ bash <(curl -Lsk https://<CONTROLLER_IP>:8443/install.sh) \
 
 节点自动：下载二进制（优先控制器内网分发，回退 GitHub）→ 写入配置 →
 systemd 启动 → **自动注册出现在仪表盘**。无需 SSH、无需预配证书。
-管理命令：`ddos-node {status|logs|restart|uninstall}`
+
+**节点管理快捷指令**（攻击机上执行）：
+
+```bash
+ddos-node            # 查看状态（进程/健康/节点ID）
+ddos-node logs       # 跟踪日志        (l = 最近 50 行)
+ddos-node restart    # 重启服务        (r 同义)
+ddos-node uninstall  # 完整卸载
+```
 
 > 安全机制：enroll token = HMAC(SHARED_SECRET, "ddos-enroll:"+node_id+":"+小时桶)，
 > 绑定单个节点且约 1 小时自然过期；节点通过控制器自签 CA + 指纹交叉校验后，
@@ -378,9 +395,13 @@ cd deploy
 ./unified-deploy.sh logs controller    # 查看日志
 ./unified-deploy.sh stop               # 停止全集群
 
-# === 一键安装节点/控制器管理 (安装器自带, v1.2) ===
-ddos-controller {status|logs|restart|stop|uninstall}   # 控制器 (二进制安装模式)
-ddos-node {start|stop|restart|status|logs|uninstall}   # 攻击节点
+# === 一键安装节点/控制器管理 (安装器自带, v1.2.3+) ===
+# 无参数即状态; 支持短别名 (s=status, r=restart, l=最近日志, u=update)
+ddos-controller            # 控制器状态: 版本/WebUI地址/在线节点数
+ddos-controller update     # ⭐ 升级控制器到最新 GitHub Release
+ddos-controller logs       # 跟踪日志 (Ctrl-C 退出)
+ddos-node                  # 节点状态: 进程/健康检查/节点ID
+ddos-node restart          # 重启节点服务
 
 # === 手动 Docker 操作 ===
 docker logs -f ddos-controller         # Controller 日志
