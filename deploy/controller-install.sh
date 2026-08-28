@@ -346,6 +346,18 @@ do_update() {
         chown ddos:ddos "$ETC_DIR/config.env" 2>/dev/null || true
         chmod 600 "$ETC_DIR/config.env" 2>/dev/null || true
         echo "[UPDATE] NODE_TLS_* 配置已对齐 (TD-1 升级兼容 + REG-3 NodeCommander 走明文)"
+
+        # v1.4.1-hotfix5 (REG-6 清理): 旧 wrapper 可能在 config.env 中残留
+        # NODE_TLS_CA_FILE=/opt/.../ca-cert.pem (REG-2 之前的硬编码值),
+        # 与新设计 (空字符串) 冲突, NodeCommander 会切回 https 模式失败.
+        # 主动清理这些行 (在确保至少一个 NODE_TLS_CA_FILE 留存后删除旧值)
+        if grep -qE "^NODE_TLS_CA_FILE=/" "$ETC_DIR/config.env" 2>/dev/null; then
+            # 用 sed 原地替换 (仅限确定行, 避免误删)
+            sed -i 's|^NODE_TLS_CA_FILE=/.*|NODE_TLS_CA_FILE=|' "$ETC_DIR/config.env"
+            sed -i 's|^NODE_TLS_CERT_FILE=/.*|NODE_TLS_CERT_FILE=|' "$ETC_DIR/config.env"
+            sed -i 's|^NODE_TLS_KEY_FILE=/.*|NODE_TLS_KEY_FILE=|' "$ETC_DIR/config.env"
+            echo "[UPDATE] REG-6: 清理残留的 NODE_TLS_* 绝对路径值"
+        fi
     fi
 
     # 节点安装脚本 (install.sh 端点) — 同步刷新到最新 master
@@ -367,7 +379,7 @@ do_update() {
         if [[ -n "$heredoc_start" ]]; then
             # 找 'CTL' 单行 (heredoc 结束)
             heredoc_end=$(awk -v start="$heredoc_start" 'NR > start && /^CTL$/ {print NR; exit}' "$new_install")
-            if [[ -n "$heredoc_end" ]]; then
+            if [[ -n "$heredoc_end" ]] && [[ -n "$CTL_PATH" ]]; then
                 sed -n "$((heredoc_start+1)),$((heredoc_end-1))p" "$new_install" > "$CTL_PATH"
                 chmod 755 "$CTL_PATH"
                 echo "[UPDATE] wrapper 脚本已从最新 install 同步 (REG-5)"
@@ -453,7 +465,7 @@ fi
 # 被 wrapper 内的 do_update 拉起), 都强制将 wrapper 重写为本文件提取的版本
 # 这是 bootstrapping 同步机制 — 确保 wrapper 与 controller-install.sh 单向同步
 # (wrapper 不会反向覆盖 controller-install.sh)
-if [[ -z "${DOCKER_MODE:-}" && -f "$CTL_PATH" ]]; then
+if [[ -z "${DOCKER_MODE:-}" && -n "$CTL_PATH" && -f "$CTL_PATH" ]]; then
     # 提取 heredoc (cat > "\$CTL_PATH" <<'CTL' 到 CTL) 并重写
     SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
     if [[ -f "$SCRIPT_PATH" ]]; then
