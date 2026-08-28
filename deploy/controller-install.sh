@@ -354,6 +354,28 @@ do_update() {
         chmod +x "$INSTALL_DIR/node-install.sh"
         chown ddos:ddos "$INSTALL_DIR/node-install.sh" 2>/dev/null || true
     fi
+
+    # v1.4.1-hotfix3 (REG-5): 升级时同时刷新 wrapper 自身, 否则旧 wrapper 的
+    # 硬编码 NODE_TLS_* 值会导致重复 append; wrapper 从最新 controller-install.sh
+    # 重新生成 (extract heredoc 部分)
+    local new_install_url="https://raw.githubusercontent.com/${GITHUB_REPO}/master/deploy/controller-install.sh"
+    local new_install="/tmp/ci-$$-new.sh"
+    if curl -Lfs --max-time 60 --retry 2 -o "$new_install" "$new_install_url" 2>/dev/null; then
+        # 提取 heredoc 部分 (cat > "$CTL_PATH" <<'CTL' 到 CTL 行)
+        local heredoc_start heredoc_end
+        heredoc_start=$(grep -n 'cat > "\$CTL_PATH" <<'\''CTL'\''' "$new_install" 2>/dev/null | head -1 | cut -d: -f1)
+        if [[ -n "$heredoc_start" ]]; then
+            # 找 'CTL' 单行 (heredoc 结束)
+            heredoc_end=$(awk -v start="$heredoc_start" 'NR > start && /^CTL$/ {print NR; exit}' "$new_install")
+            if [[ -n "$heredoc_end" ]]; then
+                sed -n "$((heredoc_start+1)),$((heredoc_end-1))p" "$new_install" > "$CTL_PATH"
+                chmod 755 "$CTL_PATH"
+                echo "[UPDATE] wrapper 脚本已从最新 install 同步 (REG-5)"
+            fi
+        fi
+        rm -f "$new_install"
+    fi
+
     rm -rf "$tmp"
     systemctl start "$SERVICE_NAME"
 
