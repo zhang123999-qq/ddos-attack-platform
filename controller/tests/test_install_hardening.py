@@ -103,6 +103,28 @@ def test_controller_update_reapplies_perms():
     print("PASS: controller-install.sh update re-applies perms (F2+F3)")
 
 
+def test_controller_update_writes_node_tls_compat():
+    """v1.4.0 (REG-1): 升级路径必须补写 v1.3.4 config.env 缺失的 NODE_TLS_* 变量
+
+    否则: v1.3.4 → v1.4.0 升级后, controller 因 NodeCommander 默认 fail-closed
+    启动崩溃。这是一个回归测试, 防止未来 v1.5+ 引入新 env 变量时再次遗漏 do_update 路径
+    """
+    p = SCRIPTS["controller-install.sh"]
+    update_block_match = re.search(r'do_update\(\)\s*\{(.*?)^\}', _read_text(p), re.DOTALL | re.MULTILINE)
+    assert update_block_match, "找不到 do_update 函数"
+    body = update_block_match.group(1)
+    # 必须有 ensure_env_var 函数定义
+    text = _read_text(p)
+    assert re.search(r'^ensure_env_var\(\)\s*\{', text, re.MULTILINE), \
+        "v1.4.0 必须定义 ensure_env_var 函数 (REG-1 升级兼容)"
+    # do_update 必须为每个 NODE_TLS_* 变量调用 ensure_env_var
+    for k in ("NODE_TLS_CA_FILE", "NODE_TLS_CERT_FILE", "NODE_TLS_KEY_FILE",
+              "NODE_INSECURE_PLAIN_HTTP", "NODE_PLAIN_HTTP_BANNED"):
+        assert f'ensure_env_var "{k}"' in body, \
+            f"do_update 必须为 {k} 调用 ensure_env_var (REG-1 升级兼容)"
+    print("PASS: controller-install.sh update writes NODE_TLS_* compat (REG-1)")
+
+
 def test_node_install_creates_ddos_user():
     """F2: 节点安装器必须创建 ddos 用户"""
     p = SCRIPTS["node-install.sh"]

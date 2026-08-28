@@ -11,8 +11,8 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 
 # 平台版本单一事实源 — 发布时只改这一处 (health/controller-info/FastAPI 均引用)
-PLATFORM_VERSION = "1.4.0"
-# v1.4.0: TD-1/TD-2/TD-3 fix (NodeCommander TLS, docker-compose fail-closed, test dead refs)
+PLATFORM_VERSION = "1.4.1"
+# v1.4.1: REG-1 fix (do_update() upgrade path writes NODE_TLS_*)
 
 from fastapi import FastAPI, Request, Depends, HTTPException, Query, BackgroundTasks, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, FileResponse

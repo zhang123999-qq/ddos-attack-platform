@@ -19,8 +19,8 @@ from fastapi.responses import JSONResponse
 import httpx
 
 # 平台版本单一事实源 — 发布时只改这一处
-PLATFORM_VERSION = "1.4.0"
-# v1.4.0: TD-1 (Node TLS opt-in), TD-3 (test cleanup)
+PLATFORM_VERSION = "1.4.1"
+# v1.4.1: REG-1 fix (upgrade path compat)
 import structlog
 
 from app.models import (

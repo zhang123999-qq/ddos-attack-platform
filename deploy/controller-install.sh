@@ -44,6 +44,18 @@ fi
 command -v systemctl >/dev/null || { log_error "systemd required"; exit 1; }
 
 ARCH=$(uname -m)
+
+# v1.4.0 (TD-1 升级兼容): 幂等写入 env 变量, 已存在则跳过
+# 用法: ensure_env_var KEY VALUE FILE
+ensure_env_var() {
+    local key="$1"
+    local value="$2"
+    local file="$3"
+    if grep -qE "^${key}=" "$file" 2>/dev/null; then
+        return 0  # 已有, 跳过
+    fi
+    echo "${key}=${value}" >> "$file"
+}
 case "$ARCH" in
     x86_64) ARCH_TAG="x86_64" ;;
     aarch64|arm64) ARCH_TAG="arm64" ;;
@@ -301,6 +313,24 @@ do_update() {
     fi
     chmod 750 "$INSTALL_DIR" "$ETC_DIR" 2>/dev/null || true
     chmod 600 "$ETC_DIR/config.env" 2>/dev/null || true
+
+    # v1.4.0 (TD-1 升级路径): 旧部署 config.env 缺 NODE_TLS_* 变量, 直接 do_update
+    # 升级 v1.4.0 二进制后, NodeCommander 默认 fail-closed 启动崩溃。
+    # 补写缺失的 NODE_TLS_* 变量, 不覆盖已有值 (幂等)
+    if [[ -f "$ETC_DIR/config.env" ]]; then
+        local cert_dir="$INSTALL_DIR/certs"
+        [[ -d "$cert_dir" ]] || cert_dir="/opt/ddos-attack-platform/controller/certs"
+        ensure_env_var "NODE_TLS_CA_FILE" "$cert_dir/ca-cert.pem" "$ETC_DIR/config.env"
+        ensure_env_var "NODE_TLS_CERT_FILE" "$cert_dir/controller-cert.pem" "$ETC_DIR/config.env"
+        ensure_env_var "NODE_TLS_KEY_FILE" "$cert_dir/controller-key.pem" "$ETC_DIR/config.env"
+        ensure_env_var "NODE_INSECURE_PLAIN_HTTP" "false" "$ETC_DIR/config.env"
+        ensure_env_var "NODE_PLAIN_HTTP_BANNED" "true" "$ETC_DIR/config.env"
+        # 重新锁定权限 (ensure_env_var append 后权限可能错)
+        chown ddos:ddos "$ETC_DIR/config.env" 2>/dev/null || true
+        chmod 600 "$ETC_DIR/config.env" 2>/dev/null || true
+        echo "[UPDATE] NODE_TLS_* 配置已对齐 (TD-1 升级兼容)"
+    fi
+
     # 节点安装脚本 (install.sh 端点) — 同步刷新到最新 master
     if curl -Lfs --max-time 60 --retry 2 -o "$INSTALL_DIR/node-install.sh" \
         "https://raw.githubusercontent.com/${GITHUB_REPO}/master/deploy/node-install.sh" 2>/dev/null; then
