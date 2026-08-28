@@ -449,6 +449,26 @@ systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME"
 fi
 
+# v1.4.1-hotfix4 (REG-5 配套): 每次 controller-install.sh 运行时 (不论 install 还是
+# 被 wrapper 内的 do_update 拉起), 都强制将 wrapper 重写为本文件提取的版本
+# 这是 bootstrapping 同步机制 — 确保 wrapper 与 controller-install.sh 单向同步
+# (wrapper 不会反向覆盖 controller-install.sh)
+if [[ -z "${DOCKER_MODE:-}" && -f "$CTL_PATH" ]]; then
+    # 提取 heredoc (cat > "\$CTL_PATH" <<'CTL' 到 CTL) 并重写
+    SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+    if [[ -f "$SCRIPT_PATH" ]]; then
+        HEREDOC_START=$(grep -n 'cat > "\$CTL_PATH" <<'\''CTL'\''' "$SCRIPT_PATH" 2>/dev/null | head -1 | cut -d: -f1)
+        if [[ -n "$HEREDOC_START" ]]; then
+            HEREDOC_END=$(awk -v start="$HEREDOC_START" 'NR > start && /^CTL$/ {print NR; exit}' "$SCRIPT_PATH")
+            if [[ -n "$HEREDOC_END" ]]; then
+                sed -n "$((HEREDOC_START+1)),$((HEREDOC_END-1))p" "$SCRIPT_PATH" > "$CTL_PATH"
+                chmod 755 "$CTL_PATH"
+                echo "[REG-5] wrapper 脚本已从当前 install 同步"
+            fi
+        fi
+    fi
+fi
+
 # ---------- 健康自检 + 完成输出 ----------
 log_step "Waiting for controller health"
 HEALTHY=0
