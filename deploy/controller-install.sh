@@ -206,12 +206,14 @@ TLS_KEY_FILE=$CERT_DIR/controller-key.pem
 TLS_CA_FILE=$CERT_DIR/ca-cert.pem
 LOG_LEVEL=info
 # v1.4.0 (TD-1 修复): Controller→Node 强制 HTTPS, CA 复用 Controller CA
-# 配套节点端 NODE_USE_TLS=true + NODE_TLS_REQUIRE_CLIENT_CERT=true 启用 mTLS
+# v1.4.1-hotfix (REG-3 配套): Node 端 NODE_USE_TLS=false (REG-2, 因 enroll 不签发证书),
+# Controller 需允许明文 HTTP, 配合通信
+# v1.5.0 将引入 enroll 阶段证书签发, 届时恢复 NODE_PLAIN_HTTP_BANNED=true
 NODE_TLS_CA_FILE=$CERT_DIR/ca-cert.pem
 NODE_TLS_CERT_FILE=$CERT_DIR/controller-cert.pem
 NODE_TLS_KEY_FILE=$CERT_DIR/controller-key.pem
-NODE_INSECURE_PLAIN_HTTP=false
-NODE_PLAIN_HTTP_BANNED=true
+NODE_INSECURE_PLAIN_HTTP=true
+NODE_PLAIN_HTTP_BANNED=false
 ENV
 chmod 600 "$ETC_DIR/config.env"
 # 修复 F3: 配置文件 owner 也必须是 ddos (cat > 是以 root 写, 需显式 chown)
@@ -323,12 +325,14 @@ do_update() {
         ensure_env_var "NODE_TLS_CA_FILE" "$cert_dir/ca-cert.pem" "$ETC_DIR/config.env"
         ensure_env_var "NODE_TLS_CERT_FILE" "$cert_dir/controller-cert.pem" "$ETC_DIR/config.env"
         ensure_env_var "NODE_TLS_KEY_FILE" "$cert_dir/controller-key.pem" "$ETC_DIR/config.env"
-        ensure_env_var "NODE_INSECURE_PLAIN_HTTP" "false" "$ETC_DIR/config.env"
-        ensure_env_var "NODE_PLAIN_HTTP_BANNED" "true" "$ETC_DIR/config.env"
+        # v1.4.1-hotfix (REG-3): Node 端 NODE_USE_TLS=false (REG-2 设计修订),
+        # 配套 Controller 需允许明文 HTTP, 否则 fail-closed 会拒绝联系 Node
+        ensure_env_var "NODE_INSECURE_PLAIN_HTTP" "true" "$ETC_DIR/config.env"
+        ensure_env_var "NODE_PLAIN_HTTP_BANNED" "false" "$ETC_DIR/config.env"
         # 重新锁定权限 (ensure_env_var append 后权限可能错)
         chown ddos:ddos "$ETC_DIR/config.env" 2>/dev/null || true
         chmod 600 "$ETC_DIR/config.env" 2>/dev/null || true
-        echo "[UPDATE] NODE_TLS_* 配置已对齐 (TD-1 升级兼容)"
+        echo "[UPDATE] NODE_TLS_* 配置已对齐 (TD-1 升级兼容 + REG-3 允许明文)"
     fi
 
     # 节点安装脚本 (install.sh 端点) — 同步刷新到最新 master
