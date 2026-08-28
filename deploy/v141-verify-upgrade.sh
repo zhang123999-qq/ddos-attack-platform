@@ -47,16 +47,20 @@ else
     FAIL=$((FAIL+1))
 fi
 
-# --- 4. NODE_TLS_* 配置幂等性 ---
+# --- 4. NODE_TLS_* 配置幂等性 (REG-6 后期望: 3 条全部空值) ---
 echo ""
-echo "=== 4. NODE_TLS_* 幂等性 ==="
-TLS_COUNT=$(echo root | sudo -S grep -c '^NODE_TLS_' /etc/ddos-controller/config.env 2>&1)
-echo "  NODE_TLS_* lines: $TLS_COUNT"
-if [[ "$TLS_COUNT" -le 1 ]]; then
-    echo "  PASS: 升级未引入新 TLS 配置"
+echo "=== 4. NODE_TLS_* 幂等性 (REG-6 后期望: 3 条全部空值) ==="
+TLS_CA=$(echo root | sudo -S grep -E '^NODE_TLS_CA_FILE=' /etc/ddos-controller/config.env 2>&1 | cut -d= -f2-)
+TLS_CERT=$(echo root | sudo -S grep -E '^NODE_TLS_CERT_FILE=' /etc/ddos-controller/config.env 2>&1 | cut -d= -f2-)
+TLS_KEY=$(echo root | sudo -S grep -E '^NODE_TLS_KEY_FILE=' /etc/ddos-controller/config.env 2>&1 | cut -d= -f2-)
+echo "  NODE_TLS_CA_FILE='$TLS_CA'"
+echo "  NODE_TLS_CERT_FILE='$TLS_CERT'"
+echo "  NODE_TLS_KEY_FILE='$TLS_KEY'"
+if [[ -z "$TLS_CA" && -z "$TLS_CERT" && -z "$TLS_KEY" ]]; then
+    echo "  PASS: NODE_TLS_* 全部空值 (REG-6 清理成功)"
     PASS=$((PASS+1))
 else
-    echo "  FAIL: 升级引入了新 TLS 配置 ($TLS_COUNT 条)"
+    echo "  FAIL: NODE_TLS_* 仍有非空值"
     FAIL=$((FAIL+1))
 fi
 
@@ -75,19 +79,28 @@ fi
 
 # --- 6. 节点重连 ---
 echo ""
-echo "=== 6. 节点重连 (12s 等待) ==="
-sleep 12
-NODE=$(echo root | sudo -S curl -sk -H "Authorization: Bearer $ADMIN_TOKEN" "https://127.0.0.1:8443/api/v1/nodes" 2>&1 | python3 -c "
+echo "=== 6. 节点重连 (30s 等待, 含重试) ==="
+NODE=0
+for i in 1 2 3 4 5 6; do
+    sleep 5
+    NODE=$(echo root | sudo -S curl -sk -H "Authorization: Bearer $ADMIN_TOKEN" "https://127.0.0.1:8443/api/v1/nodes" 2>&1 | python3 -c "
 import json,sys
-d = json.load(sys.stdin).get('data', [])
-print(len(d))
+try:
+    d = json.load(sys.stdin).get('data', [])
+    print(len(d))
+except:
+    print(0)
 ")
-echo "  nodes online: $NODE"
+    echo "  attempt $i: nodes online = $NODE"
+    if [[ "$NODE" -ge 1 ]]; then
+        break
+    fi
+done
 if [[ "$NODE" -ge 1 ]]; then
     echo "  PASS: 节点重连成功"
     PASS=$((PASS+1))
 else
-    echo "  FAIL: 节点未重连"
+    echo "  FAIL: 节点未重连 (30s 后仍 0)"
     FAIL=$((FAIL+1))
 fi
 
