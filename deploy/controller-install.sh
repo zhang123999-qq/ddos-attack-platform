@@ -207,11 +207,11 @@ TLS_CA_FILE=$CERT_DIR/ca-cert.pem
 LOG_LEVEL=info
 # v1.4.0 (TD-1 修复): Controller→Node 强制 HTTPS, CA 复用 Controller CA
 # v1.4.1-hotfix (REG-3 配套): Node 端 NODE_USE_TLS=false (REG-2, 因 enroll 不签发证书),
-# Controller 需允许明文 HTTP, 配合通信
-# v1.5.0 将引入 enroll 阶段证书签发, 届时恢复 NODE_PLAIN_HTTP_BANNED=true
-NODE_TLS_CA_FILE=$CERT_DIR/ca-cert.pem
-NODE_TLS_CERT_FILE=$CERT_DIR/controller-cert.pem
-NODE_TLS_KEY_FILE=$CERT_DIR/controller-key.pem
+# Controller 不配置 NODE_TLS_CA_FILE → 走明文 HTTP 通信路径
+# v1.5.0 将引入 enroll 阶段证书签发, 届时恢复 NODE_TLS_CA_FILE + NODE_PLAIN_HTTP_BANNED=true
+NODE_TLS_CA_FILE=
+NODE_TLS_CERT_FILE=
+NODE_TLS_KEY_FILE=
 NODE_INSECURE_PLAIN_HTTP=true
 NODE_PLAIN_HTTP_BANNED=false
 ENV
@@ -275,6 +275,19 @@ require_root() {
     fi
 }
 
+# v1.4.1-hotfix (REG-4): 包装脚本原引用 ensure_env_var (定义在 controller-install.sh)
+# 但包装脚本独立运行无该函数, 升级时 append 全部失败. 这里重新内嵌一份
+# (与 controller-install.sh 第 50 行的实现保持一致)
+ensure_env_var() {
+    local key="$1"
+    local value="$2"
+    local file="$3"
+    if grep -qE "^${key}=" "$file" 2>/dev/null; then
+        return 0  # 已有, 跳过
+    fi
+    echo "${key}=${value}" >> "$file"
+}
+
 get_port() {
     local port
     port=$(grep -E '^CONTROLLER_PORT=' "$ETC_DIR/config.env" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
@@ -322,17 +335,17 @@ do_update() {
     if [[ -f "$ETC_DIR/config.env" ]]; then
         local cert_dir="$INSTALL_DIR/certs"
         [[ -d "$cert_dir" ]] || cert_dir="/opt/ddos-attack-platform/controller/certs"
-        ensure_env_var "NODE_TLS_CA_FILE" "$cert_dir/ca-cert.pem" "$ETC_DIR/config.env"
-        ensure_env_var "NODE_TLS_CERT_FILE" "$cert_dir/controller-cert.pem" "$ETC_DIR/config.env"
-        ensure_env_var "NODE_TLS_KEY_FILE" "$cert_dir/controller-key.pem" "$ETC_DIR/config.env"
-        # v1.4.1-hotfix (REG-3): Node 端 NODE_USE_TLS=false (REG-2 设计修订),
-        # 配套 Controller 需允许明文 HTTP, 否则 fail-closed 会拒绝联系 Node
+        # v1.4.1-hotfix (REG-3 配套): Node 端 NODE_USE_TLS=false (REG-2),
+        # Controller 也不配 NODE_TLS_CA_FILE → NodeCommander 走明文 HTTP
+        ensure_env_var "NODE_TLS_CA_FILE" "" "$ETC_DIR/config.env"
+        ensure_env_var "NODE_TLS_CERT_FILE" "" "$ETC_DIR/config.env"
+        ensure_env_var "NODE_TLS_KEY_FILE" "" "$ETC_DIR/config.env"
         ensure_env_var "NODE_INSECURE_PLAIN_HTTP" "true" "$ETC_DIR/config.env"
         ensure_env_var "NODE_PLAIN_HTTP_BANNED" "false" "$ETC_DIR/config.env"
         # 重新锁定权限 (ensure_env_var append 后权限可能错)
         chown ddos:ddos "$ETC_DIR/config.env" 2>/dev/null || true
         chmod 600 "$ETC_DIR/config.env" 2>/dev/null || true
-        echo "[UPDATE] NODE_TLS_* 配置已对齐 (TD-1 升级兼容 + REG-3 允许明文)"
+        echo "[UPDATE] NODE_TLS_* 配置已对齐 (TD-1 升级兼容 + REG-3 NodeCommander 走明文)"
     fi
 
     # 节点安装脚本 (install.sh 端点) — 同步刷新到最新 master
