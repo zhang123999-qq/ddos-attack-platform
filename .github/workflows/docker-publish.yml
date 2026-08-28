@@ -34,17 +34,29 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --no-cache-dir -r controller/requirements.txt
-          pip install --no-cache-dir pytest httpx
+          pip install --no-cache-dir -r attacker/requirements.txt
+          pip install --no-cache-dir pytest httpx aiohttp cryptography
 
+      # v1.4.1-hotfix6 (NEW-1): TD-1 fail-closed 需要测试显式 opt-out 走 HTTP
+      # (CI 环境无 Node 实际连接, 否则 NodeCommander 启动崩溃, pytest 失败)
       - name: Run controller test suite (gate)
         working-directory: controller
         env:
           SHARED_SECRET: ci-gate-secret-32chars-abcdef1234567890
           LOG_LEVEL: error
           ENABLE_WEB_UI: 'true'
+          # NEW-1 (r3): TD-1 fail-closed 兼容
+          NODE_INSECURE_PLAIN_HTTP: 'true'
+          NODE_PLAIN_HTTP_BANNED: 'false'
+        # NEW-2 (r3): 跑全部 tests/, 不再是 4/11 漏 5 个 (含 install_hardening/node_commander_tls/upgrade_path_regression/registry_fixes/weak_modules)
         run: |
-          python -m pytest tests/test_ratelimit.py tests/test_scenarios.py \
-            tests/test_enroll.py tests/test_api_smoke.py -v --tb=short
+          python -m pytest tests/ -v --tb=short
+
+      # NEW-3 (r3): 跑 attacker 测试套件
+      - name: Run attacker test suite (NEW-3)
+        working-directory: attacker
+        run: |
+          python -m pytest tests/ -v --tb=short
 
       - name: Run E2E flows (real HTTPS boots)
         working-directory: controller

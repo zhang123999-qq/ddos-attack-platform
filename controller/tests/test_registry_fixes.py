@@ -14,6 +14,10 @@ from datetime import datetime, timedelta, timezone
 os.environ.setdefault("SHARED_SECRET", "test-secret-32chars-abcdef1234567890")
 os.environ.setdefault("ENABLE_WEB_UI", "true")
 os.environ.setdefault("LOG_LEVEL", "error")
+# v1.4.1: TD-1 fail-closed default 需测试显式 opt-out 走 HTTP
+# (测试环境无 Node, 真实环境用 controller-install.sh 注入)
+os.environ.setdefault("NODE_INSECURE_PLAIN_HTTP", "true")
+os.environ.setdefault("NODE_PLAIN_HTTP_BANNED", "false")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402

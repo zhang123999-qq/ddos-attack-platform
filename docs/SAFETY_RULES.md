@@ -9,12 +9,12 @@
 
 | 项目 | 详情 |
 |------|------|
-| **文档版本** | v1.3 |
+| **文档版本** | v1.4 |
 | **生效日期** | 2024-01-01 |
-| **最近更新** | 2025-08-25 |
+| **最近更新** | 2025-08-28 |
 | **下次评审** | 2026-02-01 |
 | **文档密级** | 内部机密 |
-| **适用平台版本** | DDoS Attack Platform v1.3+ |
+| **适用平台版本** | DDoS Attack Platform v1.4.1+ |
 | **批准部门** | 安全管理部、法务合规部、网络运维部 |
 
 ---
@@ -84,6 +84,26 @@
 
 ### 3. 权限最小化（强制执行，容器/系统层面保障）
 
+#### 3.1 systemd 部署 (v1.3.4+ 推荐)
+
+| 组件 | 运行身份 | 必需 Capability | 禁止事项 | 验证命令 |
+|------|---------|----------------|---------|---------|
+| Controller | `ddos` 系统用户 (uid 999, nologin, gid 986) | 无 | `root`、`User=root` 运行 | `systemctl show ddos-controller -p User` |
+| HTTP 攻击节点 | `ddos` 系统用户 (uid 999) | 无 | `root`、`CAP_NET_RAW` | `systemctl show ddos-attacker -p User` |
+| RAW 攻击节点 (scapy) | `root` | `CAP_NET_RAW` (CapabilityBoundingSet) | `--privileged` 全开 | `getpcaps $(pidof ddos-attacker)` |
+
+> **v1.3.4 升级**：`controller-install.sh` / `node-install.sh` 自动创建 `ddos` 系统用户 (无登录权限),
+> `config.env` 固定 `chmod 600`, systemd unit 权限 640; 升级路径同步修正 owner 与权限。
+>
+> **systemd hardening** (`deploy/systemd/ddos-*.service`):
+> - `NoNewPrivileges=true` — 禁止 setuid/setgid 提权
+> - `ProtectSystem=strict` — 文件系统只读保护
+> - `ProtectHome=true` — 禁止访问 /home /root /run/user
+> - `PrivateTmp=true` — 私有 /tmp
+> - `CapabilityBoundingSet=` — RAW 节点仅含 `CAP_NET_RAW`, HTTP 节点为空
+
+#### 3.2 Docker 部署 (旧版兼容)
+
 | 组件 | 运行权限 | 必需 Capability | 禁止事项 | 验证命令 |
 |------|---------|----------------|---------|---------|
 | Controller | 普通用户 (UID 1000) | Docker socket 访问 | `--privileged`、root 运行 | `docker inspect --format '{{.HostConfig.Privileged}}'` |
@@ -91,6 +111,7 @@
 | RAW 攻击节点 | 普通用户 (UID 1000) | `CAP_NET_RAW` | `--privileged`、`CAP_NET_ADMIN`（除非必要） | `getpcaps <pid>` |
 
 > 💡 **最佳实践**：Docker 部署时使用 `cap_add: [NET_RAW]` 而非 `privileged: true`；systemd 部署使用 `CapabilityBoundingSet=CAP_NET_RAW`。
+> 强烈推荐升级到 systemd 部署, 已修复 Docker socket 滥用等历史隐患。
 
 ### 4. 熔断机制（三级保障，强制生效，不可禁用）
 

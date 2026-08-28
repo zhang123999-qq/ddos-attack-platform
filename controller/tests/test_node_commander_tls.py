@@ -123,3 +123,24 @@ else:
 
     def test_td1_missing_ca_file_raises():
         test_missing_ca_file_raises()
+
+    # v1.4.1-hotfix6 (REG-7 测试污染): 上面的测试会 set NODE_TLS_CA_FILE=/nonexistent
+    # 泄漏到后续 test, 导致其他测试 (如 test_registry_fixes) 启动失败.
+    # 加 fixture-like 清理: 每个 test 后重置为 HTTP 模式
+    def test_cleanup_node_env():
+        """重置 NODE_TLS_* 和 NODE_INSECURE_PLAIN_HTTP, 让其他测试可运行"""
+        for k in ("NODE_TLS_CA_FILE", "NODE_TLS_CERT_FILE", "NODE_TLS_KEY_FILE",
+                  "NODE_PLAIN_HTTP_BANNED"):
+            os.environ.pop(k, None)
+        os.environ["NODE_INSECURE_PLAIN_HTTP"] = "true"
+        # 也重建 node_commander 单例 (之前测试可能半初始)
+        from app.node_commander import node_commander
+        import asyncio
+        try:
+            asyncio.run(node_commander.stop())
+        except Exception:
+            pass
+        node_commander._client = None
+        node_commander._scheme = None
+        print("REG-7 test pollution cleanup: NODE_TLS_* cleared, HTTP mode restored")
+
