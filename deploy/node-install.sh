@@ -219,13 +219,18 @@ CONTROLLER_CA_CERT=${TMP_CA}
 ALLOWED_TARGET_CIDRS=${ALLOWED_CIDRS}
 ATTACK_TYPES=$( [[ "$NODE_TYPE" == "raw" ]] && echo "syn_flood,udp_flood,udp_reflection" || echo "http_flood,slowloris" )
 LOG_LEVEL=info
-# v1.4.0 (TD-1 修复): 节点侧默认启用 HTTPS, 复用 enroll 分发的 node-cert.pem
-# 作为 TLS 服务端证书; 配 NODE_TLS_REQUIRE_CLIENT_CERT=true 启用 mTLS 双向
-NODE_USE_TLS=${NODE_USE_TLS:-true}
+# v1.4.1 (TD-1 设计修订): 节点侧 NODE_USE_TLS 默认 false
+# 原因: TD-1 设计假设 node-cert.pem 由 enroll 阶段生成, 但 enroll 端点
+# (controller/app/main.py:493) 当前只返回 shared_secret, 不签发节点证书。
+# 若 NODE_USE_TLS=true 但无 cert 文件, 节点启动崩溃 (已实测)。
+# 完整 mTLS 节点需要 v1.5.0 引入证书签发流程, 详见 DEEP_EVALUATION_v2.md C-NEW-1
+# 临时方案: Controller→Node 通信仍走 mTLS (NodeCommander 配置 NODE_TLS_* 强制),
+# Node→Controller 通信仍 HTTPS (由 controller 端 verify CA 实现)
+NODE_USE_TLS=${NODE_USE_TLS:-false}
 NODE_TLS_CERT_FILE=$INSTALL_DIR/certs/node-cert.pem
 NODE_TLS_KEY_FILE=$INSTALL_DIR/certs/node-key.pem
 NODE_TLS_CA_FILE=$TMP_CA
-NODE_TLS_REQUIRE_CLIENT_CERT=${NODE_TLS_REQUIRE_CLIENT_CERT:-true}
+NODE_TLS_REQUIRE_CLIENT_CERT=${NODE_TLS_REQUIRE_CLIENT_CERT:-false}
 ENV
 chmod 600 "$ETC_DIR/config.env"
 # 修复 F3: 配置文件 owner 必须是 ddos (cat > 是以 root 写, 需显式 chown)
