@@ -586,11 +586,14 @@ duration: int = Field(default=60, ge=1, le=3600)
 
 ## 1️⃣4️⃣ 建议路线图
 
-### v1.4.0 (建议下个版本, 1-2 月)
+### v1.4.0 (✅ 已发, 2025-08-25)
 
-- [ ] 修复 `node_commander.py` `verify=False` (TD-1)
-- [ ] 修复 `docker-compose.yml` 弱默认密钥 (TD-2)
-- [ ] 修复 `test_safety.py` 不存在的测试函数 (TD-3)
+- [x] **TD-1**: `node_commander.py verify=False` — 修复为 fail-closed + `NODE_TLS_CA_FILE` 显式启用
+- [x] **TD-2**: `docker-compose.yml SHARED_SECRET` 弱默认 — 改 `${SHARED_SECRET:?...}` 强制
+- [x] **TD-3**: `test_safety.py / test_weak_modules.py` 死引用 — 替换为存在的函数
+
+### v1.4.x (短期, 1-2 月) — 剩余债务
+
 - [ ] 拆分 `main.py` 路由 (TD-5)
 - [ ] 紧急熔断双人确认 (TD-6)
 - [ ] WS 鉴权改 subprotocol (TD-7)
@@ -661,7 +664,7 @@ duration: int = Field(default=60, ge=1, le=3600)
 
 ### 15.4 一句话评价
 
-> **这是一个在合规、安全、可靠性、文档上都达到生产级别 (Production-Ready) 的内网红方攻击演练平台**, 在 v1.3.4 安装器加固后, **配置安全基线已达企业生产标准**。但仍有 25 项技术债务和 3 项中等风险需在下个版本中处理, 重点是 **`verify=False` 隐患**、**测试死引用**、**docker-compose 弱默认** 三项。
+> **这是一个在合规、安全、可靠性、文档上都达到生产级别 (Production-Ready) 的内网红方攻击演练平台**, 在 v1.3.4 安装器加固 + v1.4.0 中等风险修复后, **配置安全基线 + 应用层通信安全已达企业生产标准**。仍有 22 项技术债务 (均为低) 需在 v1.4.x/v1.5.0 持续清理。
 
 ---
 

@@ -59,6 +59,8 @@ def main():
         "TLS_KEY_FILE": str(KEY),
         "CONTROLLER_PORT": str(PORT),
         "AUDIT_LOG_PATH": str(CERT_DIR / "audit.jsonl"),
+        # v1.4.0 (TD-1): 此测试只测 Controller 自身 TLS, 不涉及 Node 通信
+        "NODE_INSECURE_PLAIN_HTTP": "true",
     })
     proc = subprocess.Popen(
         [sys.executable, "-m", "app.main"],

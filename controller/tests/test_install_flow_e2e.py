@@ -47,6 +47,8 @@ def main():
         "AUDIT_LOG_PATH": str(CERT_DIR / "audit-install.jsonl"),
         "ENABLE_WEB_UI": "true",
         "LOG_LEVEL": "error",
+        # v1.4.0 (TD-1): E2E 测试不测 Controller→Node 通信, 显式允许 legacy HTTP
+        "NODE_INSECURE_PLAIN_HTTP": "true",
     })
     proc = subprocess.Popen(
         [sys.executable, "-m", "app.main"], cwd=str(ROOT), env=env,

@@ -11,7 +11,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 INSTALL_DIR="/opt/ddos-attack-platform/controller"
 ETC_DIR="/etc/ddos-controller"
 CERT_DIR="$INSTALL_DIR/certs"
@@ -193,6 +193,13 @@ TLS_CERT_FILE=$CERT_DIR/controller-cert.pem
 TLS_KEY_FILE=$CERT_DIR/controller-key.pem
 TLS_CA_FILE=$CERT_DIR/ca-cert.pem
 LOG_LEVEL=info
+# v1.4.0 (TD-1 修复): Controller→Node 强制 HTTPS, CA 复用 Controller CA
+# 配套节点端 NODE_USE_TLS=true + NODE_TLS_REQUIRE_CLIENT_CERT=true 启用 mTLS
+NODE_TLS_CA_FILE=$CERT_DIR/ca-cert.pem
+NODE_TLS_CERT_FILE=$CERT_DIR/controller-cert.pem
+NODE_TLS_KEY_FILE=$CERT_DIR/controller-key.pem
+NODE_INSECURE_PLAIN_HTTP=false
+NODE_PLAIN_HTTP_BANNED=true
 ENV
 chmod 600 "$ETC_DIR/config.env"
 # 修复 F3: 配置文件 owner 也必须是 ddos (cat > 是以 root 写, 需显式 chown)

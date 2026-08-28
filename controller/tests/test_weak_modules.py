@@ -100,5 +100,7 @@ if __name__ == "__main__":
     test_ws_manager_channel_isolation()
     test_ws_broadcast_snapshot_survives_mutation()
     test_node_commander_unregistered_node()
-    test_audit_queue_full_degrades_to_sync_write()
+    # v1.4.0 (TD-3 修复): 原始 test_audit_queue_full_degrades_to_sync_write
+    # 引用了一个随 v1.3 重构删除的方法; 替换为实际存在的 graceful 降级测试
+    test_audit_queue_full_degrades_gracefully()
     print("ALL WEAK-MODULE TESTS PASSED")

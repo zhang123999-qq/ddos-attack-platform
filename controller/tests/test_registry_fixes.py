@@ -114,9 +114,13 @@ def test_health_version_matches_app():
 
 
 def test_health_version_is_current_release():
-    """发布守护: /health 版本必须是 PLATFORM_VERSION (1.3.3), 防止再出现硬编码旧版本"""
+    """发布守护: /health 版本必须是 PLATFORM_VERSION, 防止再出现硬编码旧版本。
+    v1.4.0 (TD-3 修复): 用元组比较版本号, 避免每次发版都要改测试
+    实际只需断言 served == PLATFORM_VERSION (一致性) 且 >= (1, 3, 3) (不退化)"""
     from app.main import PLATFORM_VERSION
-    assert PLATFORM_VERSION == "1.3.3", f"release version drifted: {PLATFORM_VERSION}"
+    parts = PLATFORM_VERSION.split(".")
+    ver_tuple = tuple(int(p) for p in parts)
+    assert ver_tuple >= (1, 3, 3), f"release version regressed: {PLATFORM_VERSION}"
     with TestClient(app) as client:
         served = client.get("/health").json()["version"]
     assert served == PLATFORM_VERSION

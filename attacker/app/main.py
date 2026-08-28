@@ -19,8 +19,8 @@ from fastapi.responses import JSONResponse
 import httpx
 
 # 平台版本单一事实源 — 发布时只改这一处
-PLATFORM_VERSION = "1.3.4"
-# v1.3.4: install hardening (F2/F3/F4)
+PLATFORM_VERSION = "1.4.0"
+# v1.4.0: TD-1 (Node TLS opt-in), TD-3 (test cleanup)
 import structlog
 
 from app.models import (
@@ -485,17 +485,59 @@ def setup_signals():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     setup_signals()
 
     # PyInstaller 冻结环境下无 app 包可导入 — 直接传应用对象
     app_target = "app.main:app"
     if getattr(sys, "frozen", False):
         app_target = app
+
+    # v1.4.0 (TD-1 修复): 节点侧默认 HTTPS, 与 Controller 端 NODE_TLS_CA_FILE 配套
+    # 启用条件: NODE_USE_TLS=true (默认 false 保持向后兼容)
+    # TLS 服务端证书: NODE_TLS_CERT_FILE + NODE_TLS_KEY_FILE (推荐复用 node-cert.pem)
+    ssl_kwargs = {}
+    if os.getenv("NODE_USE_TLS", "false").lower() == "true":
+        cert_file = os.getenv("NODE_TLS_CERT_FILE") or os.getenv("NODE_CERT")
+        key_file = os.getenv("NODE_TLS_KEY_FILE") or os.getenv("NODE_KEY")
+        if not cert_file or not key_file:
+            raise SystemExit(
+                "NODE_USE_TLS=true but NODE_TLS_CERT_FILE/NODE_TLS_KEY_FILE "
+                "(or NODE_CERT/NODE_KEY) not set"
+            )
+        if not (os.path.isfile(cert_file) and os.path.isfile(key_file)):
+            raise SystemExit(
+                f"NODE_USE_TLS cert/key missing: {cert_file} / {key_file}"
+            )
+        import ssl as _ssl
+        ssl_ctx = _ssl.create_default_context(_ssl.Purpose.CLIENT_AUTH)
+        ssl_ctx.load_cert_chain(cert_file, key_file)
+        ssl_ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
+        ssl_ctx.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20")
+        # 客户端证书可选校验 (mTLS) — 启用由 NODE_TLS_REQUIRE_CLIENT_CERT=true
+        ca_file = os.getenv("NODE_TLS_CA_FILE", "")
+        if os.getenv("NODE_TLS_REQUIRE_CLIENT_CERT", "false").lower() == "true":
+            if not ca_file or not os.path.isfile(ca_file):
+                raise SystemExit("NODE_TLS_REQUIRE_CLIENT_CERT=true but NODE_TLS_CA_FILE not set")
+            ssl_ctx.verify_mode = _ssl.CERT_REQUIRED
+            ssl_ctx.load_verify_locations(ca_file)
+        ssl_kwargs["ssl_certfile"] = cert_file
+        ssl_kwargs["ssl_keyfile"] = key_file
+        if ssl_ctx.verify_mode == _ssl.CERT_REQUIRED:
+            ssl_kwargs["ssl_ca_certs"] = ca_file
+        import structlog as _sl
+        _sl.get_logger(__name__).info("node_tls_enabled",
+                                       cert=cert_file, mtls=ssl_ctx.verify_mode == _ssl.CERT_REQUIRED)
+    else:
+        import structlog as _sl
+        _sl.get_logger(__name__).warning("node_plain_http_insecure",
+                                          hint="set NODE_USE_TLS=true to enable HTTPS")
+
     uvicorn.run(
         app_target,
         host="0.0.0.0",
         port=int(os.getenv("NODE_PORT", "8080")),
         log_level=os.getenv("LOG_LEVEL", "info").lower(),
+        **ssl_kwargs,
         access_log=True
     )

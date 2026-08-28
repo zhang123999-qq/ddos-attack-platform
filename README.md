@@ -1,6 +1,6 @@
 # DDoS Attack Platform v1.3 — 内网红方攻击演练平台
 
-[![Version](https://img.shields.io/badge/version-1.3.4-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Internal%20Only-red.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)]()

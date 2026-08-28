@@ -146,10 +146,12 @@ def test_duration_zero_or_negative_rejected_by_model():
 
 
 if __name__ == "__main__":
+    # v1.4.0 (TD-3 修复): v1.3.0 移除了白名单校验, test_whitelist_* 系列函数已删除
+    # 替换为 v1.3.0 引入的对应测试
     test_registry_completeness()
     test_registry_rejects_unknown_type()
-    test_whitelist_blocks_non_whitelisted_target()
-    test_whitelist_allows_loopback()
+    test_no_target_restrictions()
+    test_whitelist_classmethod_removed()
     test_emergency_stop_blocks_execution()
     test_token_bucket_enforces_rate_ceiling()
     test_duration_zero_or_negative_rejected_by_model()

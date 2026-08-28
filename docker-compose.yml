@@ -15,7 +15,10 @@ services:
       - CONTROLLER_IP=10.100.1.10
       - CONTROLLER_PORT=8443
       - CONTROLLER_HOST=0.0.0.0
-      - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      # v1.4.0 (TD-2 修复): docker-compose 弱默认 fallback 移除
+      # 启动前必须在 .env 设置 SHARED_SECRET=<至少 32 字符的强随机密钥>
+      # 未设置时容器直接退出, 避免带弱密钥的"看似正常"部署
+      - SHARED_SECRET=${SHARED_SECRET:?SHARED_SECRET must be set in .env (>=32 chars, e.g. openssl rand -hex 32)}
       - REQUIRE_SHARED_SECRET=true
       - TLS_CERT_FILE=/certs/controller-cert.pem
       - TLS_KEY_FILE=/certs/controller-key.pem
@@ -65,7 +68,7 @@ services:
       - NODE_CERT=/certs/node-cert.pem
       - NODE_KEY=/certs/node-key.pem
       - NODE_TOKEN=
-      - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - SHARED_SECRET=${SHARED_SECRET:?SHARED_SECRET must be set in .env (>=32 chars, e.g. openssl rand -hex 32)}
       - REQUIRE_SHARED_SECRET=true
       - ATTACK_TYPES=http_flood,slowloris
       - MAX_RPS=10000
@@ -112,7 +115,7 @@ services:
       - NODE_CERT=/certs/node-cert.pem
       - NODE_KEY=/certs/node-key.pem
       - NODE_TOKEN=
-      - SHARED_SECRET=${SHARED_SECRET:-changeme32charslongsecretkey123456}
+      - SHARED_SECRET=${SHARED_SECRET:?SHARED_SECRET must be set in .env (>=32 chars, e.g. openssl rand -hex 32)}
       - REQUIRE_SHARED_SECRET=true
       - ATTACK_TYPES=syn_flood,udp_flood,udp_reflection
       - MAX_PPS=50000

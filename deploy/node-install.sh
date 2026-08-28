@@ -14,7 +14,7 @@
 # =============================================================================
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 INSTALL_DIR="/opt/ddos-attack-platform/attacker"
 ETC_DIR="/etc/ddos-attacker"
 SERVICE_NAME="ddos-attacker"
@@ -219,6 +219,13 @@ CONTROLLER_CA_CERT=${TMP_CA}
 ALLOWED_TARGET_CIDRS=${ALLOWED_CIDRS}
 ATTACK_TYPES=$( [[ "$NODE_TYPE" == "raw" ]] && echo "syn_flood,udp_flood,udp_reflection" || echo "http_flood,slowloris" )
 LOG_LEVEL=info
+# v1.4.0 (TD-1 修复): 节点侧默认启用 HTTPS, 复用 enroll 分发的 node-cert.pem
+# 作为 TLS 服务端证书; 配 NODE_TLS_REQUIRE_CLIENT_CERT=true 启用 mTLS 双向
+NODE_USE_TLS=${NODE_USE_TLS:-true}
+NODE_TLS_CERT_FILE=$INSTALL_DIR/certs/node-cert.pem
+NODE_TLS_KEY_FILE=$INSTALL_DIR/certs/node-key.pem
+NODE_TLS_CA_FILE=$TMP_CA
+NODE_TLS_REQUIRE_CLIENT_CERT=${NODE_TLS_REQUIRE_CLIENT_CERT:-true}
 ENV
 chmod 600 "$ETC_DIR/config.env"
 # 修复 F3: 配置文件 owner 必须是 ddos (cat > 是以 root 写, 需显式 chown)
