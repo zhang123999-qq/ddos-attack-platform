@@ -186,5 +186,28 @@ deleted file mode 100644
 2. **实现 emergency_stop 双人确认**: 详见第 4.2 节未完成项 #5。
 3. **运行 ruff 全量修复**: `ruff check . --fix && ruff format .`
 4. **运行 pip-audit**: `pip-audit -r controller/requirements.txt -r attacker/requirements.txt`
-5. **PR 创建**: 当前分支名建议 `auto-debug-20260902-1430` (启动时间), 提交信息遵循
-   Conventional Commits (`fix:`, `chore:`, `docs:`)。
+
+---
+
+## 九、PR 推送状态
+
+✅ **分支已成功推送到远程**:
+- 分支名: `auto-debug-20260902-1430`
+- Remote: `git@github.com:zhang123999-qq/ddos-attack-platform.git`
+- 包含 commit: 4 个
+- PR 创建链接: <https://github.com/zhang123999-qq/ddos-attack-platform/pull/new/auto-debug-20260902-1430>
+
+(由于环境无 `gh` CLI, PR 创建需在浏览器中打开上述链接手动确认。)
+
+### Commit 列表
+
+```
+2447209 docs: include auto_debug_changes.diff for full PR review
+515ab6a docs: regenerate auto_debug_changes.diff from master..HEAD
+9758fbe docs: include auto_debug_changes.diff for PR review
+0bdbb2f fix: conftest.py setup for cross-project pytest isolation
+```
+
+### 完整 diff
+
+完整 diff 已保存于根目录 `auto_debug_changes.diff` (随本次提交 push)。
