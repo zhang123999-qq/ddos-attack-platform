@@ -79,3 +79,7 @@ TOOLS.md
 # Docker
 *.tar.gz
 *.zip
+# Debug 过程产物（diff/patch 文件不入库）
+*.diff
+*_changes.diff
+*.patch
