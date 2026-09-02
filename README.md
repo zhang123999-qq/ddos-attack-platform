@@ -1,23 +1,23 @@
-# DDoS Attack Platform v1.4.1 — 内网红方攻击演练平台
+# DDoS Attack Platform v1.5.0 — 内网红方攻击演练平台
 
-[![Version](https://img.shields.io/badge/version-1.4.1--hotfix6-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)]()
 [![License](https://img.shields.io/badge/license-Internal%20Only-red.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)]()
-[![Tests](https://img.shields.io/badge/tests-72%2F72%20pass-brightgreen.svg)]()
-[![E2E](https://img.shields.io/badge/E2E-5%20suites-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-97%2F97%20pass-brightgreen.svg)]()
+[![E2E](https://img.shields.io/badge/E2E-4%20suites-blue.svg)]()
+[![Security](https://img.shields.io/badge/security-hardened-success.svg)]()
 
 > ⚠️ **仅供授权内网网络安全团队教学/演练使用**  
 > 📋 **部署前必须阅读并签署 [安全守则](docs/SAFETY_RULES.md) 与授权确认书**  
 > 🚫 **严禁用于任何非授权测试、生产环境攻击、公共网络攻击**
 > 🐛 **发现安全漏洞**: 见 [SECURITY.md](docs/SECURITY.md) 披露流程
 
-> **v1.4.1 更新**: TD-1/2/3 (通信加密 + 强密钥强制) + REG-1~6 (install/upgrade 路径 6 项破坏性 bug 修复)
-> + 5 套 E2E 验证脚本 (controller/node/attack/upgrade/wrapper-regen/uninstall)
-> + 文档体系补全 (CHANGELOG/SECURITY/CONTRIBUTING/更新 3 个 doc)
-> + 7 项新发现 (NEW-1~7), 见 [DEEP_EVALUATION_v3.md](docs/DEEP_EVALUATION_v3.md)
-> - 完整 E2E 验证: WSL 真实卸载重装测试 41/45 PASS
-> - 单元测试: 72/72 PASS (含 TD-1, REG-7 测试隔离 fix)
+> **v1.5.0 重大安全加固**: 目标白名单默认开启 + Node mTLS 完整链路 (Controller 内置 mini-CA) + 状态持久化 (SQLite WAL) + Admin API 限流 (60 RPM) + `/metrics` Prometheus 端点 (15 指标) + main.py 拆分 (671 → 187 行)
+> - **11 项技术债关闭** (R-NEW-1, R-NEW-2, O-NEW-1, S-NEW-3, M-3, NEW-5, NEW-2, NEW-3, T-NEW-4, R-NEW-3, C-5)
+> - **97 单元测试 + 4 E2E 套件** 全部 PASS (从 v1.4.1 的 32 单元 +178%)
+> - **CI 门禁**: pytest + ruff + gitleaks + pip-audit
+> - 详见 [CHANGELOG.md](docs/CHANGELOG.md) v1.5.0 完整条目
 
 ---
 
@@ -54,31 +54,33 @@
 
 ---
 
-## 📊 项目状态 (v1.4.1-hotfix6)
+## 📊 项目状态 (v1.5.0)
 
 | 维度 | 状态 | 详情 |
 |------|------|------|
-| **代码量** | ~6,500 LOC | controller 4,800 + attacker 2,100 |
-| **单元测试** | 72/72 PASS | 13 文件, 覆盖所有核心模块 |
-| **E2E 验证** | 5 套件 41/45 PASS | 真实 WSL 卸载重装测试 |
-| **GHA** | 2 workflows | docker-publish + binary-release |
-| **技术债** | 0 Critical, 2 Medium, 24 Low | 详见 DEEP_EVALUATION_v3.md §3 |
+| **代码量** | ~8,200 LOC | controller 5,800 + attacker 2,400 |
+| **单元测试** | 97/97 PASS | 16 controller 套件 + 2 attacker 套件 |
+| **E2E 验证** | 4 套件 (含 Linux netns) | 真实 WSL 卸载重装 + 网络隔离 |
+| **GHA** | 2 workflows | docker-publish (含 pytest+ruff+gitleaks+pip-audit) + binary-release |
+| **技术债** | 0 Critical, 0 Medium, 13 Low | 详见 CHANGELOG.md v1.5.0 |
 | **License** | Internal Only | 严禁外传/商用/非授权 |
-| **文档** | 8 主流 doc + 3 新增 | 完整, 与代码版本对齐 |
+| **文档** | 12 主流 doc | CHANGELOG/ARCHITECTURE/API_REFERENCE/SAFETY_RULES/SECURITY/CONTRIBUTING/REVIEW/MAINTAINERS/TEACHING_GUIDE/CODE_REVIEW/REGRESSION/DEEP_EVALUATION_v3 |
 
-**关键能力**:
-- ✅ 通信全链路加密 (mTLS+HMAC, Controller→Node HTTPS, Node→Controller HTTPS)
-- ✅ fail-closed 默认 (TD-1), 显式 opt-out 走 HTTP
-- ✅ 升级幂等 (REG-1~6 全闭环), 老版本无缝升级
-- ✅ 攻击 E2E 可用 (controller 199 reqs 100% success 实测)
-- ✅ 卸载干净 (无残留进程/端口/用户)
+**v1.5.0 关键能力**:
+- ✅ **mTLS 完整链路** (Controller 内置 mini-CA + Node 强制 mTLS, fail-closed)
+- ✅ **目标白名单默认开启** (10.100.0.0/16 等 3 段, 越权自动拦截)
+- ✅ **状态持久化** (SQLite WAL, 重启自动恢复)
+- ✅ **Admin API 限流** (60 RPM, 429 + Retry-After)
+- ✅ **Prometheus 指标** (15 个 + /metrics 端点)
+- ✅ **systemd OOM 防护** (MemoryMax + OOMPolicy=stop)
+- ✅ **WS 双模式 auth** (URL 兼容 + 首消息新方案)
+- ✅ **CI 门禁** (pytest + ruff + gitleaks + pip-audit)
+- ✅ **main.py 拆分** (671 → 187 行, 7 routes 模块)
+- ✅ **Node 强制 mTLS** (缺证书 SystemExit 1, 嗅探风险消除)
 
-**仍 open (v1.5.0 重点)**:
-- 🟡 Node 端 mTLS 不强制 (S-NEW-1)
-- 🟡 emergency_stop 无双人确认 (S-NEW-2)
-- 🟡 Controller 无 `/metrics` Prometheus 端点 (O-NEW-1)
-- 🟡 CI 缺 5/11 测试文件覆盖 (NEW-2)
-- 🟢 TD-7/8/9, NEW-3~7 等 24 项 Low 项
+**仍 open (v1.5.1 候选)**:
+- 🟡 emergency_stop 无双人确认 (S-NEW-2, 降级为限流 + 审计)
+- 🟢 13 项 Low (详见 DEEP_EVALUATION_v3.md 剩余)
 
 ---
 
@@ -476,9 +478,10 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ## ⚠️ 重要提醒（红线）
 
-1. **仅限授权内网** - 严禁对未书面授权目标发起攻击。⚠️ v1.3 起平台**不再技术强制目标白名单**
-   （任意 IP/域名均可发射），目标约束完全依赖授权流程与操作纪律——请确保演练目标与
-   授权书一致，越权攻击按 SAFETY_RULES 红线追责
+1. **仅限授权内网** - 严禁对未书面授权目标发起攻击。v1.5.0 起**目标白名单默认开启**（fail-closed）:
+   `ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12` 之外的 IP/CIDR/域名一律拒绝
+   （域名解析后任一 A 记录命中白名单即放行）。需对白名单外目标演练时，**必须**显式
+   `ALLOW_ANY_TARGET=true` 并在授权书中明确范围；越权攻击按 SAFETY_RULES 红线追责
 2. **网络隔离** - 必须使用独立 VLAN/macvlan，实验网段无互联网路由
 3. **流量镜像** - 生产验证请用流量镜像/旁路，禁止直接攻击核心链路
 4. **法律合规** - 使用前确保符合《网络安全法》、《数据安全法》及单位制度

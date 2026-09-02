@@ -1,19 +1,21 @@
-# DDoS Attack Platform — API 参考文档 v1.4.1
+# DDoS Attack Platform — API 参考文档 v1.5.0
 
-[![Version](https://img.shields.io/badge/version-1.4.1--hotfix6-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)]()
 [![Base URL](https://img.shields.io/badge/base%20url-%2Fapi%2Fv1-green.svg)]()
 [![Auth](https://img.shields.io/badge/auth-Bearer%20%7C%20mTLS-orange.svg)]()
 
 > **基础 URL**: `https://<controller-host>:8443/api/v1`  
 > **认证方式**: 
 > - Controller API → `Authorization: Bearer <TOKEN>` (HMAC 派生)
-> - Node→Controller 上报 → **HTTPS** + `X-Node-ID` + `X-Node-Token` (HMAC 派生, mTLS by node cert)
-> - Controller→Node 下发 → **HTTPS + mTLS** (v1.4.0+) **or HTTP** (v1.4.1-hotfix6 临时回退) + `X-Node-ID` + `X-Node-Token` (Cmd Token, HMAC 派生)
+> - Node→Controller 上报 → **HTTPS + mTLS** (v1.5.0+ 强制, 缺证书 fail-closed) + `X-Node-ID` + `X-Node-Token` (HMAC 派生)
+> - Controller→Node 下发 → **HTTPS + mTLS** (v1.5.0+ 强制) + `X-Node-ID` + `X-Node-Token` (Cmd Token, HMAC 派生)
+> - WebSocket `/ws/metrics` → URL `?token=` (旧) 或首消息 `{"type":"auth","token":"..."}` (新, 推荐)
+> - Controller `/metrics` → 公开 (内部监控专用, 应在内网/VLAN 部署)
 > 
 > **内容类型**: `application/json`  
 > **字符编码**: UTF-8  
-> **日期格式**: ISO 8601 (UTC), 如 `2024-01-15T10:30:00Z`  
-> **当前版本**: v1.4.1-hotfix6 (master @ 7c694b9)
+> **日期格式**: ISO 8601 (UTC), 如 `2026-09-01T10:30:00Z`  
+> **当前版本**: v1.5.0
 
 ---
 

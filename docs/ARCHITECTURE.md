@@ -1,13 +1,13 @@
 # DDoS Attack Platform — 架构设计文档
 
-[![Version](https://img.shields.io/badge/version-1.4.1--hotfix6-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)]()
 [![Status](https://img.shields.io/badge/status-Production%20Ready-green.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)]()
 
-> **文档版本**: v1.4.1 (跟随平台版本)  
-> **适用平台**: DDoS Attack Platform v1.4.1-hotfix6+  
+> **文档版本**: v1.5.0 (跟随平台版本)  
+> **适用平台**: DDoS Attack Platform v1.5.0+  
 > **编写日期**: 2024-01-15  
-> **最近更新**: 2025-08-28  
+> **最近更新**: 2026-09-01  
 > **评审者**: 架构组、安全组、运维组  
 > **文档密级**: 内部机密
 
@@ -92,17 +92,18 @@
 
 | 方向 | 端点 | 说明 | 认证 |
 |------|------|------|------|
-| Node → Ctrl | `POST /api/v1/nodes/register` | 节点注册 | HTTPS + Node Token (HMAC) |
-| Node → Ctrl | `POST /api/v1/nodes/heartbeat` | 心跳上报 (默认 10s) | HTTPS + Node Token (HMAC) |
-| Node → Ctrl | `POST /api/v1/results` | 攻击结果上报 | HTTPS + Node Token (HMAC) |
-| Node → Ctrl | `POST /api/v1/nodes/unregister` | 节点优雅注销 (v1.1) | HTTPS + Node Token (HMAC) |
-| Ctrl → Node | `POST /api/v1/attacks/execute` | 下发攻击指令 | **HTTPS + mTLS** (v1.4.0+) **or HTTP (opt-in)** (v1.4.1-hotfix6 临时) + Controller Cmd Token (HMAC) |
-| Ctrl → Node | `POST /api/v1/attacks/{id}/stop` | 停止指令 | **HTTPS + mTLS** (v1.4.0+) **or HTTP (opt-in)** (v1.4.1-hotfix6 临时) + Controller Cmd Token (HMAC) |
-| Ctrl → Node | `POST /api/v1/emergency_stop` | 熔断广播 | **HTTPS + mTLS** (v1.4.0+) **or HTTP (opt-in)** (v1.4.1-hotfix6 临时) + Controller Cmd Token (HMAC) |
-| Ctrl → Node | `POST /api/v1/emergency_stop/reset` | 熔断复位广播 (v1.1) | **HTTPS + mTLS** (v1.4.0+) **or HTTP (opt-in)** (v1.4.1-hotfix6 临时) + Controller Cmd Token (HMAC) |
-| Node → Ctrl | `POST /api/v1/nodes/enroll` | 节点自助接入换配置 (v1.2, enroll token 认证) | 无状态 Enroll Token |
+| Node → Ctrl | `POST /api/v1/nodes/register` | 节点注册 | **HTTPS + mTLS** (v1.5.0+ 强制) + Node Token (HMAC) |
+| Node → Ctrl | `POST /api/v1/nodes/heartbeat` | 心跳上报 (默认 10s) | **HTTPS + mTLS** + Node Token (HMAC) |
+| Node → Ctrl | `POST /api/v1/results` | 攻击结果上报 | **HTTPS + mTLS** + Node Token (HMAC) |
+| Node → Ctrl | `POST /api/v1/nodes/unregister` | 节点优雅注销 (v1.1) | **HTTPS + mTLS** + Node Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/attacks/execute` | 下发攻击指令 | **HTTPS + mTLS** (v1.5.0+ 强制) + Controller Cmd Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/attacks/{id}/stop` | 停止指令 | **HTTPS + mTLS** + Controller Cmd Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/emergency_stop` | 熔断广播 | **HTTPS + mTLS** + Controller Cmd Token (HMAC) |
+| Ctrl → Node | `POST /api/v1/emergency_stop/reset` | 熔断复位广播 (v1.1) | **HTTPS + mTLS** + Controller Cmd Token (HMAC) |
+| Node → Ctrl | `POST /api/v1/nodes/enroll` | 节点自助接入, **v1.5.0 签发 client 证书** (内联返回 PEM) | 无状态 Enroll Token |
 | Ops → Ctrl | `GET /api/v1/nodes/enroll-command` | 生成节点安装命令 (v1.2) | Bearer Controller Token |
 | Node → Ctrl | `GET /install.sh` `/artifacts/*` `/api/v1/controller-info` | 安装脚本/CA/制品分发 (v1.2) | 公开 |
+| Ops → Prometheus | `GET /metrics` | **v1.5.0 新增** 12 指标 (节点/攻击/配额/熔断/审计/enroll/证书) | 公开 (建议内网/VLAN) |
 
 > **身份一致性校验 (v1.1)**：register / heartbeat / unregister / results 均校验
 > 请求体中的 `node_id` 与认证派生的节点身份一致，不一致返回 403，防止跨节点伪造。

@@ -1,4 +1,4 @@
-.PHONY: all build docker-build docker-push binary binary-package certs deploy-controller deploy-attacker deploy-attacker-raw clean help
+.PHONY: all build docker-build docker-push binary binary-package certs deploy-controller deploy-attacker deploy-attacker-raw clean help test test-controller test-attacker test-coverage lint
 
 # =============================================================================
 # DDoS Attack Platform — 一键构建/部署 Makefile
@@ -118,3 +118,46 @@ clean:
 	rm -rf dist/ build/_*build/
 	docker compose down -v 2>/dev/null || true
 	@echo "Done."
+
+# ========== 测试 (v1.5.0: 97 单元 + 4 E2E 套件) ==========
+test: test-controller test-attacker
+	@echo ""
+	@echo "  [OK] 全部测试通过, 无 BUG"
+
+test-controller:
+	@echo ">>> Controller 测试 (16 套件)"
+	cd controller && \
+		SHARED_SECRET=$(SHARED_SECRET) \
+		LOG_LEVEL=error \
+		NODE_INSECURE_PLAIN_HTTP=true \
+		NODE_PLAIN_HTTP_BANNED=false \
+		CA_STORAGE_DIR=$(CURDIR)/.ca_test \
+		python -m pytest tests/ -v --tb=short
+
+test-attacker:
+	@echo ">>> Attacker 测试 (2 套件)"
+	cd attacker && \
+		SHARED_SECRET=$(SHARED_SECRET) \
+		LOG_LEVEL=error \
+		ALLOWED_TARGET_CIDRS=10.100.0.0/16 \
+		ALLOW_ANY_TARGET=false \
+		python -m pytest tests/ -v --tb=short
+
+test-coverage:
+	@echo ">>> 覆盖率报告 (pytest-cov)"
+	cd controller && \
+		SHARED_SECRET=$(SHARED_SECRET) \
+		LOG_LEVEL=error \
+		NODE_INSECURE_PLAIN_HTTP=true \
+		CA_STORAGE_DIR=$(CURDIR)/.ca_test \
+		python -m pytest tests/ --cov=app --cov-report=term-missing --tb=short
+	cd attacker && \
+		SHARED_SECRET=$(SHARED_SECRET) \
+		LOG_LEVEL=error \
+		python -m pytest tests/ --cov=app --cov-report=term-missing --tb=short
+
+# ========== Lint (v1.5.0 CI 门禁) ==========
+lint:
+	@echo ">>> ruff lint + format check"
+	ruff check controller/ attacker/ build/
+	ruff format --check controller/ attacker/ build/

@@ -35,14 +35,34 @@ pip install -r requirements-dev.txt   # pytest, ruff, mypy
 ### 1.3 跑测试
 
 ```bash
-# 单元测试
-cd controller && python -m pytest tests/ -v
-cd ../attacker && python -m pytest tests/ -v
+# 单元测试 (v1.5.0: 97 单元 + 4 E2E 套件)
+# 推荐用 Makefile target (统一环境变量):
+make test                     # controller + attacker 全部测试
+make test-controller          # 仅 controller 16 套件
+make test-attacker            # 仅 attacker 2 套件
+make test-coverage            # 覆盖率报告 (pytest-cov)
+make lint                     # ruff lint + format check
 
-# E2E (需要 WSL/Docker)
-bash deploy/v141-verify-controller.sh
-bash deploy/v141-verify-node.sh
-bash deploy/v141-verify-attack.sh
+# 手动运行 (Windows / Linux 等价):
+cd controller && \
+  SHARED_SECRET=test-secret-32chars-abcdef1234567890 \
+  LOG_LEVEL=error \
+  NODE_INSECURE_PLAIN_HTTP=true \
+  NODE_PLAIN_HTTP_BANNED=false \
+  CA_STORAGE_DIR=$(pwd)/.ca_test \
+  python -m pytest tests/ -v --tb=short
+cd ../attacker && \
+  SHARED_SECRET=attacker-test-secret-32chars-abc123 \
+  LOG_LEVEL=error \
+  ALLOWED_TARGET_CIDRS=10.100.0.0/16 \
+  ALLOW_ANY_TARGET=false \
+  python -m pytest tests/ -v --tb=short
+
+# E2E (Linux 真实网络命名空间 + 卸载重装):
+cd controller && python tests/test_e2e_network_namespace.py  # Linux-only
+cd controller && python tests/test_install_flow_e2e.py        # 需 HTTPS 配置
+cd controller && python tests/test_tls_e2e.py                # 需真实证书
+cd controller && python tests/test_upgrade_path_regression.py # 升级路径
 ```
 
 ---

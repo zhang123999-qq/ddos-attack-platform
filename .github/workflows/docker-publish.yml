@@ -37,6 +37,36 @@ jobs:
           pip install --no-cache-dir -r attacker/requirements.txt
           pip install --no-cache-dir pytest httpx aiohttp cryptography
 
+      # v1.5.0 (T-NEW-4): ruff lint 门禁
+      - name: Install ruff
+        run: pip install --no-cache-dir 'ruff==0.6.5'
+
+      - name: Ruff lint
+        run: |
+          ruff check controller/ attacker/ build/
+          ruff format --check controller/ attacker/ build/
+
+      # v1.5.0 (O-NEW-2): secrets 扫描 (gitleaks) - 防止 SHARED_SECRET/CA 私钥误提交
+      - name: Detect secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # v1.5.0 (O-NEW-2): pip-audit 已知 CVE 扫描
+      - name: Dependency audit (pip-audit)
+        run: |
+          pip install --no-cache-dir pip-audit
+          pip-audit -r controller/requirements.txt -r attacker/requirements.txt || echo "::warning::CVE found (non-blocking)"
+
+      # v1.5.0 (C.4): Linux NetworkNamespace 隔离 E2E (需 unshare, 失败不影响门禁)
+      - name: NetworkNamespace E2E (Linux only)
+        run: |
+          if command -v unshare >/dev/null 2>&1; then
+            python -m pytest controller/tests/test_e2e_network_namespace.py -v -m network_isolation || echo "::warning::netns E2E failed (CI Linux only)"
+          else
+            echo "SKIP: unshare not available"
+          fi
+
       # v1.4.1-hotfix6 (NEW-1): TD-1 fail-closed 需要测试显式 opt-out 走 HTTP
       # (CI 环境无 Node 实际连接, 否则 NodeCommander 启动崩溃, pytest 失败)
       - name: Run controller test suite (gate)

@@ -1,0 +1,67 @@
+# GitHub 自动标签规则
+# 配合 .github/workflows/pr-gate.yml 的 auto-label job 使用
+# 参考: https://github.com/actions/labeler
+
+# === 区域 (area) ===
+controller:
+  - controller/**/*
+  - '!**/*.md'
+
+attacker:
+  - attacker/**/*
+  - '!**/*.md'
+
+deploy:
+  - deploy/**/*
+  - Makefile
+  - docker-compose.yml
+
+docs:
+  - '**/*.md'
+  - '!**/README.md'
+
+gha:
+  - .github/**/*
+
+tests:
+  - '**/tests/**'
+  - '**/test_*.py'
+
+config:
+  - '**/config.env*'
+  - '**/*.example'
+  - '**/*.template'
+
+# === 类型 (kind) ===
+bug:
+  - '**/BUG-*'
+  - '**/BUG_*.md'
+
+security:
+  - controller/app/auth.py
+  - controller/app/audit.py
+  - attacker/app/crypto.py
+  - docs/SECURITY.md
+  - docs/SAFETY_RULES.md
+
+tech-debt:
+  - '**/TD-*'
+  - '**/REG-*'
+  - '**/CRIT-*'
+  - docs/DEEP_EVALUATION*.md
+
+hotfix:
+  - '**/hotfix/**'
+
+# === 规模 (size) ===
+# 由 pr-size-warning job 自动添加 S/M/L/XL 标签
+
+# === 优先级 (priority) ===
+priority/critical:
+  - any:
+      - changed-files:
+          - any-glob-to-any-file:
+              - controller/app/auth.py
+              - controller/app/registry.py
+              - controller/app/orchestrator.py
+              - .github/workflows/**

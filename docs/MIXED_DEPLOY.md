@@ -174,8 +174,10 @@ attackers:
 | 通信方向 | 协议 | 端口 | 前提 |
 |----------|------|------|------|
 | Attacker → Controller | HTTPS (mTLS) | 8443 | Controller IP 对 Attacker 可达 |
-| Controller → Attacker | HTTP | 8080 | Attacker IP 对 Controller 可达 |
+| Controller → Attacker | **HTTPS (mTLS, v1.5.0+ 强制)** | 8080 | Attacker IP 对 Controller 可达 |
 | 管理端 → Controller | HTTPS | 8443 | 浏览器/API 可达 Controller |
+
+> **v1.5.0 变更**: Controller → Attacker 改为强制 mTLS (Controller 内置 mini-CA 在 enroll 时签发 Node 客户端证书)。`NODE_USE_TLS=true` + `NODE_CERT`/`NODE_KEY` 必须配置, 缺证书 attacker 端 fail-closed (`SystemExit 1`)。`NODE_INSECURE_PLAIN_HTTP=true` 仅做兼容 opt-out, 生产环境严禁启用。
 
 **关键**: Controller 的 `host` 必须是所有 Attacker 节点都能访问到的 IP。
 

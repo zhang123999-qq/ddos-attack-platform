@@ -1,0 +1,141 @@
+# Pre-commit hook 配置
+# 安装: pip install pre-commit && pre-commit install
+# 手动跑: pre-commit run --all-files
+# 跳过单次: git commit --no-verify（需 reviewer 同意）
+
+# 通用配置
+default_language_version:
+  python: python3.11
+
+# 慢的 hook 默认不跑（按需手动 pre-commit run --hook-stage manual）
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+
+# 全局跳过
+exclude: |
+  (?x)^(
+      .*\.min\.js|
+      .*\.lock|
+      artifacts/.*|
+      generated/.*|
+      dist/.*|
+      .*_pb2\.py|
+      .*_pb2_grpc\.py
+  )$
+
+repos:
+  # ========== 本地工具：快速反馈 ==========
+  - repo: local
+    hooks:
+      # 1. ruff 格式 + lint
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format --check --diff
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix --show-fixes
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      # 2. mypy（v1.5.0 强制前为 warning）
+      - id: mypy-controller
+        name: mypy (controller)
+        entry: mypy controller/app/ --ignore-missing-imports --no-strict-optional
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [manual]  # 默认不跑，CI 强制
+
+      - id: mypy-attacker
+        name: mypy (attacker)
+        entry: mypy attacker/app/ --ignore-missing-imports --no-strict-optional
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [manual]
+
+      # 3. bandit 安全扫描
+      - id: bandit
+        name: bandit
+        entry: bandit -r controller/app attacker/app -lll -q
+        language: system
+        pass_filenames: false
+
+      # 4. 敏感信息扫描
+      - id: gitleaks
+        name: gitleaks
+        entry: gitleaks protect --staged --no-banner
+        language: system
+        stages: [pre-commit]
+
+      # 5. 调试代码检测
+      - id: no-debug
+        name: no debug prints
+        entry: |
+          bash -c '
+            grep -rn --include="*.py" -E "^\s*(print\(|breakpoint\()" \
+              controller/app/ attacker/app/ 2>/dev/null \
+              | grep -v "# debug-allow" && \
+              echo "❌ 发现 print/breakpoint 残留，请清理或加 # debug-allow" && exit 1 || exit 0
+          '
+        language: system
+        pass_filenames: false
+
+      # 6. TODO/FIXME 必须关联 issue
+      - id: todo-needs-refs
+        name: TODO/FIXME need issue ref
+        entry: |
+          bash -c '
+            bad=$(grep -rn --include="*.py" -E "#\s*(TODO|FIXME|XXX)" \
+                    controller/app/ attacker/app/ 2>/dev/null \
+                  | grep -vE "Refs:?\s*#?[0-9]+|TD-[0-9]+|REG-[0-9]+|BUG-[0-9]+" || true)
+            if [ -n "$bad" ]; then
+              echo "❌ 以下 TODO/FIXME 未关联 issue: $bad"
+              exit 1
+            fi
+          '
+        language: system
+        pass_filenames: false
+
+  # ========== 第三方 hook ==========
+
+  # 7. Conventional Commits 校验
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [feat, fix, docs, style, refactor, perf, test, chore, revert, hotfix]
+
+  # 8. 大文件检测
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # 9. Python 整理
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+      - id: pyupgrade
+        args: [--py311-plus]
+
+  # 10. 文档 markdown lint（可选）
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.39.0
+    hooks:
+      - id: markdownlint
+        args: [--fix, --config, .markdownlint.json]
+        files: \.md$

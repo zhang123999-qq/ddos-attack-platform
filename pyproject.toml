@@ -1,0 +1,70 @@
+# pyproject.toml - 项目级 ruff 配置
+# ruff 读取 [tool.ruff.*] 段 (必须加 tool.ruff 前缀才能被 ruff 识别)
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["controller", "attacker", "build"]
+
+[tool.ruff.lint]
+# 选择与现有项目基线匹配的规则集
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "PIE",  # flake8-pie
+    "PT",   # flake8-pytest-style
+    "RUF",  # ruff-specific rules
+    "ASYNC",# flake8-async
+    "S",    # flake8-bandit (安全)
+    "TID",  # flake8-tidy-imports
+]
+
+ignore = [
+    "E501",   # 行长（与 line-length 配合）
+    "B008",   # do not perform function calls in argument defaults（FastAPI Depends 用法）
+    "S101",   # assert 使用（项目内允许，但 CI 文档提醒）
+    "S104",   # hardcoded bind all interfaces（攻击节点需要监听 0.0.0.0）
+    "S324",   # insecure hash（项目内统一 SHA256/HMAC，已规范）
+    "S603",   # subprocess call（项目内白名单管理）
+    "S607",   # partial path（已加参数校验）
+]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py 允许未使用 import（re-export）
+"**/__init__.py" = ["F401", "E402"]
+# 攻击模块 __init__.py 是副作用注册 (AttackRegistry 自动注册), 必须保留导入
+"**/attacks/__init__.py" = ["F401", "F811"]
+# tests 允许魔术、断言、单测试
+"**/tests/**" = ["S101", "S105", "S106", "B011"]
+# test_controller.py 是 smoke script, 不是 pytest 测试
+"controller/test_controller.py" = ["E402"]
+# UI 路由允许 print（v1.5.0 移除）
+"**/ui/**" = ["T201"]
+# FastAPI 主入口: app 实例化后才 import 路由模块以避免循环依赖, 是约定
+"**/controller/app/main.py" = ["E402"]
+"**/attacker/app/main.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"  # 强制绝对导入
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+
+# v1.5.0: pytest markers
+[tool.pytest.ini_options]
+markers = [
+    "network_isolation: Linux-only netns tests (skipped on win32/macOS)",
+]

@@ -180,7 +180,6 @@ ddos-attacker.exe
 def create_package():
     """打包为 tar.gz / zip 发布"""
     banner("Creating Release Package")
-    import tarfile
 
     package_dir = BUILD_DIR / "_package"
     shutil.rmtree(package_dir, ignore_errors=True)

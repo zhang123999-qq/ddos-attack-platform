@@ -1,0 +1,269 @@
+# GitHub Actions: PR 自动化门禁
+# 触发: pull_request (任何分支到 master/develop)
+# 作用: 在 PR 阶段跑全套 lint / 类型 / 安全 / 测试, 阻止不合格 PR 合并
+
+name: pr-gate
+
+on:
+  pull_request:
+    branches: [master, develop]
+  workflow_dispatch:
+
+# 防止同 PR 重复触发扇出
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write  # 评论、贴标签
+  checks: write         # 写 check status
+
+jobs:
+  # ==================== Stage 1: 快速反馈 (并行) ====================
+  format-lint:
+    name: Format & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff==0.6.*
+
+      - name: ruff format check
+        run: ruff format --check --diff .
+
+      - name: ruff check
+        run: ruff check . --output-format=github
+
+      - name: markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v17
+        with:
+          globs: '**/*.md'
+
+  typecheck:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true  # v1.5.0 前是 warning
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install mypy==1.10.*
+      - name: mypy controller
+        run: mypy controller/app/ --ignore-missing-imports --no-strict-optional
+      - name: mypy attacker
+        run: mypy attacker/app/ --ignore-missing-imports --no-strict-optional
+
+  security:
+    name: Security Scan (bandit + gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: bandit
+        run: |
+          pip install bandit==1.7.*
+          bandit -r controller/app attacker/app -lll --format json --output bandit-report.json || true
+          # high/medium 视为失败
+          bandit -r controller/app attacker/app -lll --severity-level medium
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-audit:
+    name: Dependency Audit (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install pip-audit==2.7.*
+      - name: pip-audit (controller)
+        run: pip-audit -r controller/requirements.txt --strict
+      - name: pip-audit (attacker)
+        run: pip-audit -r attacker/requirements.txt --strict
+      - name: pip-audit (build)
+        run: pip-audit -r build/requirements-build.txt --strict
+
+  # ==================== Stage 2: 测试 (依赖 lint 通过) ====================
+  unit-tests-controller:
+    name: Unit Tests (controller)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [format-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps
+        run: |
+          cd controller
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx
+      - name: Run tests
+        run: |
+          cd controller
+          python -m pytest tests/ -v \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-controller
+          path: controller/coverage.xml
+
+  unit-tests-attacker:
+    name: Unit Tests (attacker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [format-lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps
+        run: |
+          cd attacker
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx
+      - name: Run tests
+        run: |
+          cd attacker
+          python -m pytest tests/ -v \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-attacker
+          path: attacker/coverage.xml
+
+  # ==================== Stage 3: 汇总门禁 (所有必须绿) ====================
+  pr-gate-summary:
+    name: PR Gate Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [format-lint, typecheck, security, dependency-audit, unit-tests-controller, unit-tests-attacker]
+    if: always()
+    steps:
+      - name: Evaluate results
+        run: |
+          echo "format-lint=${{ needs.format-lint.result }}"
+          echo "typecheck=${{ needs.typecheck.result }}"
+          echo "security=${{ needs.security.result }}"
+          echo "dependency-audit=${{ needs.dependency-audit.result }}"
+          echo "unit-tests-controller=${{ needs.unit-tests-controller.result }}"
+          echo "unit-tests-attacker=${{ needs.unit-tests-attacker.result }}"
+
+          if [[ "${{ needs.format-lint.result }}" != "success" \
+            || "${{ needs.security.result }}" != "success" \
+            || "${{ needs.dependency-audit.result }}" != "success" \
+            || "${{ needs.unit-tests-controller.result }}" != "success" \
+            || "${{ needs.unit-tests-attacker.result }}" != "success" ]]; then
+            echo "❌ PR Gate: FAILED"
+            exit 1
+          fi
+
+          # typecheck 当前是 warning, 留给 reviewer 判断
+          if [[ "${{ needs.typecheck.result }}" != "success" ]]; then
+            echo "⚠️ Type check warning, reviewer judgment"
+          fi
+
+          echo "✅ PR Gate: PASSED"
+
+      # 评论 PR
+      - name: Comment PR
+        if: github.event_name == 'pull_request' && always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-gate
+          message: |
+            ## 🤖 PR Gate 状态
+
+            | 检查 | 状态 |
+            |------|------|
+            | 格式/lint | ${{ needs.format-lint.result == 'success' && '✅' || '❌' }} |
+            | 类型 (mypy) | ${{ needs.typecheck.result == 'success' && '✅' || '⚠️ warning' }} |
+            | 安全 (bandit/gitleaks) | ${{ needs.security.result == 'success' && '✅' || '❌' }} |
+            | 依赖 (pip-audit) | ${{ needs.dependency-audit.result == 'success' && '✅' || '❌' }} |
+            | 测试 (controller) | ${{ needs.unit-tests-controller.result == 'success' && '✅' || '❌' }} |
+            | 测试 (attacker) | ${{ needs.unit-tests-attacker.result == 'success' && '✅' || '❌' }} |
+
+            > 📋 详见 [`CODE_REVIEW_STANDARDS.md`](docs/CODE_REVIEW_STANDARDS.md) 与 [`REVIEW_PROCESS.md`](docs/REVIEW_PROCESS.md)
+
+  # ==================== 自动标签 ====================
+  auto-label:
+    name: Auto Label
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: .github/labeler.yml
+
+  # ==================== 大 PR 提醒 ====================
+  pr-size-warning:
+    name: PR Size Warning
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check PR size
+        run: |
+          changed=$(git diff --shortstat HEAD~1 HEAD | awk '{print $4 + $6}')
+          echo "Changed lines: $changed"
+          if [ "$changed" -gt 1000 ]; then
+            echo "::warning::PR > 1000 行 ($changed 行), 建议拆分"
+            echo "XL_SIZE=$changed" >> $GITHUB_ENV
+          elif [ "$changed" -gt 500 ]; then
+            echo "L_SIZE=$changed" >> $GITHUB_ENV
+          elif [ "$changed" -gt 100 ]; then
+            echo "M_SIZE=$changed" >> $GITHUB_ENV
+          else
+            echo "S_SIZE=$changed" >> $GITHUB_ENV
+          fi
+      - name: Comment on XL
+        if: env.XL_SIZE != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-size
+          message: |
+            ⚠️ **本 PR 超过 1000 行**，按 [`REVIEW_PROCESS.md` §3.3](../../docs/REVIEW_PROCESS.md)
+            流程要求必须拆分。建议按模块/职责切为多个 < 500 行的子 PR。
+            例: 先重构 → 再加新功能 → 再补测试，分三个 PR 提。
