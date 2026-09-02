@@ -5,7 +5,6 @@ import ssl
 import hmac
 import hashlib
 from pathlib import Path
-from typing import Optional
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -44,23 +43,37 @@ class NodeCrypto:
                     hint="set SHARED_SECRET to >=32 random chars (openssl rand -hex 32)",
                 )
                 raise SystemExit(1)
-    
-    def create_ssl_context(self) -> ssl.SSLContext:
-        """创建连接 Controller 的 TLS 客户端上下文。
 
-        双模式:
-        - mTLS (NODE_CERT/NODE_KEY 存在): 客户端证书双向认证
-        - 服务端验证 (仅 CONTROLLER_CA_CERT): enroll 安装器的默认发放物,
-          TLS 加密 + 校验控制器身份, 客户端不出证 — 与 node-install.sh 一致
+    def create_ssl_context(self) -> ssl.SSLContext:
+        """创建连接 Controller 的 TLS 客户端上下文 (v1.5.0: 强制 mTLS)
+
+        - 客户端证书 (NODE_CERT/NODE_KEY) 必须存在且有效 — fail-closed
+        - 校验 Controller 证书由 CONTROLLER_CA_CERT 签发
+        - NODE_INSECURE_PLAIN_HTTP=true 兼容旧部署, 但仅做服务端验证
         """
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        insecure_http = os.getenv("NODE_INSECURE_PLAIN_HTTP", "false").lower() == "true"
+
         if Path(self.node_cert).exists() and Path(self.node_key).exists():
+            # 标准 mTLS 路径 (v1.5.0 enroll 签发的客户端证书)
             context.load_cert_chain(self.node_cert, self.node_key)
+            logger.info("mtls_client_cert_loaded", cert=self.node_cert)
         elif os.getenv("NODE_CERT") or os.getenv("NODE_KEY"):
             # 显式配置了客户端证书但文件缺失 — 拒绝启动而非静默降级
             logger.error("node_cert_configured_but_missing",
                          cert=self.node_cert, key=self.node_key)
             raise SystemExit(1)
+        elif insecure_http:
+            # 兼容路径: 仅服务端验证, 无客户端证书 (NODE_INSECURE_PLAIN_HTTP=true)
+            logger.warning("node_mtls_disabled_insecure_http",
+                          hint="set NODE_CERT/NODE_KEY from controller enroll response for production")
+        else:
+            # v1.5.0: 缺证书且未显式 opt-out → 拒绝启动 (fail-closed)
+            logger.error("node_mtls_required_no_cert",
+                         hint="run node-install.sh to enroll (auto-issues cert) "
+                              "or set NODE_INSECURE_PLAIN_HTTP=true for legacy HTTP")
+            raise SystemExit(1)
+
         context.verify_mode = ssl.CERT_REQUIRED
         if not Path(self.ca_cert).exists():
             logger.error("controller_ca_missing", path=self.ca_cert)

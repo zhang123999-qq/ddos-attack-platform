@@ -76,18 +76,51 @@ def test_overrides_reach_executor():
 
 
 def test_cidr_subnet_semantics():
-    """v1.3.0 方案A: 目标不限 — TargetValidator 恒放行 (占位符除外), 域名合法"""
+    """v1.5.0: 目标白名单默认开启 (fail-closed)。
+
+    - 白名单内 IP/CIDR 放行
+    - 白名单外 IP 拒绝
+    - 域名解析后任一 A 记录命中白名单放行 (本测试用 mock 绕过 DNS)
+    - 占位符始终拒绝
+    """
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
     tv = TargetValidator(["10.100.0.0/16"])
-    assert tv.is_allowed(TargetSpec(ip="10.100.5.5")) is True
-    assert tv.is_allowed(TargetSpec(ip="10.100.5.0/24")) is True    # CIDR 放行
-    assert tv.is_allowed(TargetSpec(ip="192.168.1.1")) is True      # 不再受白名单限制
-    assert tv.is_allowed(TargetSpec(ip="example.com")) is True      # 域名放行
-    assert tv.is_allowed(TargetSpec(ip="target.example.com")) is True
-    assert tv.is_allowed(TargetSpec(ip="TARGET_IP_PLACEHOLDER")) is False  # 占位符仍拒绝
+
+    # 白名单内: IP
+    assert asyncio.run(tv.is_allowed(TargetSpec(ip="10.100.5.5"))) is True
+    # 白名单外: IP 拒绝
+    assert asyncio.run(tv.is_allowed(TargetSpec(ip="8.8.8.8"))) is False
+    # 占位符: 仍拒绝
+    assert asyncio.run(tv.is_allowed(TargetSpec(ip="TARGET_IP_PLACEHOLDER"))) is False
     # is_hostname 判定
     assert TargetSpec(ip="example.com").is_hostname() is True
     assert TargetSpec(ip="10.100.5.5").is_hostname() is False
-    print("CIDR SUBNET SEMANTICS OK (restrictions disabled, domains accepted)")
+
+    # 域名解析命中白名单: 放行 (mock getaddrinfo)
+    # Python 3.9+: getaddrinfo 是 BaseEventLoop 方法; 通过 module-level asyncio.get_event_loop
+    # 拿到 loop, 然后 patch 该 loop 实例的 getaddrinfo
+    loop = asyncio.new_event_loop()
+    try:
+        with patch.object(type(loop), "getaddrinfo",
+                          new=AsyncMock(return_value=[(0, 0, 0, 0, ("10.100.7.7", 0))])):
+            assert asyncio.run(tv.is_allowed(TargetSpec(ip="example.com"))) is True
+        with patch.object(type(loop), "getaddrinfo",
+                          new=AsyncMock(return_value=[(0, 0, 0, 0, ("8.8.8.8", 0))])):
+            assert asyncio.run(tv.is_allowed(TargetSpec(ip="evil.example.com"))) is False
+    finally:
+        loop.close()
+
+    # ALLOW_ANY_TARGET=true 显式 opt-out
+    tv_optout = TargetValidator(["10.100.0.0/16"], allow_any=True)
+    assert asyncio.run(tv_optout.is_allowed(TargetSpec(ip="8.8.8.8"))) is True
+
+    # 留空白名单 + 未 opt-out: 拒绝所有
+    tv_empty = TargetValidator([])
+    assert asyncio.run(tv_empty.is_allowed(TargetSpec(ip="10.100.5.5"))) is False
+
+    print("CIDR SUBNET SEMANTICS OK (whitelist default ON, opt-out explicit)")
 
 
 if __name__ == "__main__":

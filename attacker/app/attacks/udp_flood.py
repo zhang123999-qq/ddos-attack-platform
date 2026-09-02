@@ -7,7 +7,7 @@ import time
 import structlog
 
 from app.attacks.base import SafeAttackBase, AttackRegistry, SafetyError
-from app.models import AttackCommand, AttackType, AttackStatus
+from app.models import AttackCommand, AttackType
 
 logger = structlog.get_logger(__name__)
 

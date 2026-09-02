@@ -48,5 +48,14 @@ SyslogIdentifier=ddos-attacker-raw
 LimitNOFILE=65536
 LimitNPROC=4096
 
+# v1.5.0 (R-NEW-3): OOM 防护
+# RAW 节点 (scapy) 内存压力更大, 单独配 2.5G 上限
+# OOMPolicy=stop: 优雅停止, Restart=always 自动拉起
+# OOMScoreAdjust=-300: 与 http 节点同等优先级 (都比 controller 高)
+MemoryMax=2500M
+MemoryHigh=2G
+OOMPolicy=stop
+OOMScoreAdjust=-300
+
 [Install]
 WantedBy=multi-user.target

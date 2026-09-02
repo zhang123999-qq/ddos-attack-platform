@@ -38,5 +38,15 @@ SyslogIdentifier=ddos-controller
 LimitNOFILE=65536
 LimitNPROC=4096
 
+# v1.5.0 (R-NEW-3): OOM 防护 — 防止攻击风暴下 OOM killer 杀掉 controller 留下半残状态
+# MemoryMax: 软上限, 超过触发回收 (默认 1G, 可被 EnvironmentFile 覆盖)
+# MemoryHigh: 主动回收阈值
+# OOMPolicy=stop: OOM 时优雅停止 (而非 SIGKILL), 让 Restart=always 自动拉起
+# OOMScoreAdjust=-200: 降低被 OOM killer 选中的概率
+MemoryMax=1G
+MemoryHigh=768M
+OOMPolicy=stop
+OOMScoreAdjust=-200
+
 [Install]
 WantedBy=multi-user.target

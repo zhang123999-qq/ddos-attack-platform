@@ -100,12 +100,55 @@ def test_missing_ca_file_raises():
         print("PASS: missing CA file → fail-closed (TD-1)")
 
 
+# v1.5.0 (NEW-5): start() 幂等 — 必须在 if/else 之前定义, __main__ 直接调用
+def test_td1_start_idempotent():
+    """多次调用 start() 不应创建新 client, 不重置 scheme"""
+    _clear_tls_env()
+    os.environ["NODE_INSECURE_PLAIN_HTTP"] = "true"
+    from app.node_commander import NodeCommander
+    nc = NodeCommander()
+    asyncio.run(nc.start())
+    first_client = nc._client
+    first_scheme = nc._scheme
+    # 再次 start 不应覆盖
+    asyncio.run(nc.start())
+    assert nc._client is first_client, "client object should be reused (idempotent)"
+    assert nc._scheme == first_scheme, "scheme must not reset"
+    # stop 之后才能重新 start
+    asyncio.run(nc.stop())
+    assert nc._client is None
+    print("PASS: start() idempotent (NEW-5)")
+
+
+def test_td1_start_idempotent_https():
+    """HTTPS 模式下 start() 幂等"""
+    _clear_tls_env()
+    cert_dir = os.path.join(os.path.dirname(__file__), "_tmp_certs")
+    ca = os.path.join(cert_dir, "server-cert.pem")
+    if not os.path.isfile(ca):
+        print("SKIP: test cert not found")
+        return
+    os.environ["NODE_TLS_CA_FILE"] = ca
+    from app.node_commander import NodeCommander
+    nc = NodeCommander()
+    asyncio.run(nc.start())
+    first_client = nc._client
+    # 二次 start 应保留 client
+    asyncio.run(nc.start())
+    assert nc._client is first_client
+    asyncio.run(nc.stop())
+    print("PASS: HTTPS start() idempotent (NEW-5)")
+
+
 if __name__ == "__main__":
     test_default_fail_closed()
     test_explicit_insecure_opt_out()
     test_ca_file_enables_https()
     test_banned_without_ca_fails_closed()
     test_missing_ca_file_raises()
+    # v1.5.0 NEW-5
+    test_td1_start_idempotent()
+    test_td1_start_idempotent_https()
     print("\nALL TD-1 NODE COMMANDER TLS TESTS PASSED")
 else:
     # pytest 入口
@@ -123,6 +166,12 @@ else:
 
     def test_td1_missing_ca_file_raises():
         test_missing_ca_file_raises()
+
+    def test_td1_start_idempotent():
+        test_td1_start_idempotent()
+
+    def test_td1_start_idempotent_https():
+        test_td1_start_idempotent_https()
 
     # v1.4.1-hotfix6 (REG-7 测试污染): 上面的测试会 set NODE_TLS_CA_FILE=/nonexistent
     # 泄漏到后续 test, 导致其他测试 (如 test_registry_fixes) 启动失败.

@@ -205,15 +205,21 @@ TLS_CERT_FILE=$CERT_DIR/controller-cert.pem
 TLS_KEY_FILE=$CERT_DIR/controller-key.pem
 TLS_CA_FILE=$CERT_DIR/ca-cert.pem
 LOG_LEVEL=info
-# v1.4.0 (TD-1 修复): Controller→Node 强制 HTTPS, CA 复用 Controller CA
-# v1.4.1-hotfix (REG-3 配套): Node 端 NODE_USE_TLS=false (REG-2, 因 enroll 不签发证书),
-# Controller 不配置 NODE_TLS_CA_FILE → 走明文 HTTP 通信路径
-# v1.5.0 将引入 enroll 阶段证书签发, 届时恢复 NODE_TLS_CA_FILE + NODE_PLAIN_HTTP_BANNED=true
-NODE_TLS_CA_FILE=
-NODE_TLS_CERT_FILE=
-NODE_TLS_KEY_FILE=
-NODE_INSECURE_PLAIN_HTTP=true
-NODE_PLAIN_HTTP_BANNED=false
+# v1.5.0: Controller→Node 强制 mTLS (内置 mini-CA 签发 node 客户端证书)
+# - NODE_TLS_CA_FILE 必须配置 (Controller 出站时校验 Node 证书由本 CA 签发)
+# - NODE_TLS_CERT_FILE/KEY_FILE 提供 mTLS 双向认证 (复用 Controller 服务端证书)
+# - NODE_INSECURE_PLAIN_HTTP=false (禁止明文回退, 生产环境严禁 opt-out)
+# - NODE_PLAIN_HTTP_BANNED=true (fail-closed, 缺证书直接拒启动)
+NODE_TLS_CA_FILE=$CERT_DIR/ca-cert.pem
+NODE_TLS_CERT_FILE=$CERT_DIR/controller-cert.pem
+NODE_TLS_KEY_FILE=$CERT_DIR/controller-key.pem
+NODE_INSECURE_PLAIN_HTTP=false
+NODE_PLAIN_HTTP_BANNED=true
+# v1.5.0: Controller 内置 mini-CA 私钥落盘目录
+CA_STORAGE_DIR=$INSTALL_DIR/ca
+# v1.5.0: 目标白名单默认开启 (A.1)
+ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12
+ALLOW_ANY_TARGET=false
 ENV
 chmod 600 "$ETC_DIR/config.env"
 # 修复 F3: 配置文件 owner 也必须是 ddos (cat > 是以 root 写, 需显式 chown)

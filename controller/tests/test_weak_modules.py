@@ -41,8 +41,10 @@ def test_ws_broadcast_snapshot_survives_mutation():
     from app.websocket import ConnectionManager
 
     mgr = ConnectionManager()
-    ws1 = MagicMock(); ws1.send_text = AsyncMock()
-    ws2 = MagicMock(); ws2.send_text = AsyncMock(side_effect=Exception("client gone"))
+    ws1 = MagicMock()
+    ws1.send_text = AsyncMock()
+    ws2 = MagicMock()
+    ws2.send_text = AsyncMock(side_effect=Exception("client gone"))
     mgr._channels.setdefault("nodes", set()).update([ws1, ws2])
 
     async def mutate_during_broadcast():

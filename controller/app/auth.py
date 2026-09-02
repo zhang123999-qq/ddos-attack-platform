@@ -4,8 +4,7 @@ import os
 import ssl
 import hashlib
 import hmac
-import secrets
-from typing import Optional, Tuple
+from typing import Optional
 from pathlib import Path
 from fastapi import Request, HTTPException, Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

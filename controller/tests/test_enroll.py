@@ -2,7 +2,6 @@
 """一键安装引导测试: enroll token 推导/校验、enroll 端点流、命令生成端点"""
 import os
 import sys
-import time
 
 os.environ.setdefault("SHARED_SECRET", "test-secret-32chars-abcdef1234567890")
 os.environ.setdefault("ENABLE_WEB_UI", "true")
@@ -58,7 +57,13 @@ def test_enroll_flow_success():
     data = r.json()
     assert data["shared_secret"], "must return shared secret over TLS"
     assert data["ca_cert_url"].endswith("/artifacts/ca-cert.pem")
-    print("ENROLL SUCCESS FLOW OK")
+    # v1.5.0: 必须返回 PEM 内联证书 + 强制 mTLS 配置
+    assert data.get("node_use_tls") is True, "must force mTLS"
+    assert "node_cert_pem" in data and "BEGIN CERTIFICATE" in data["node_cert_pem"]
+    assert "node_key_pem" in data and "BEGIN PRIVATE KEY" in data["node_key_pem"]
+    assert data.get("node_tls_cert_file") == "/certs/node-cert.pem"
+    assert data.get("node_tls_key_file") == "/certs/node-key.pem"
+    print("ENROLL SUCCESS FLOW OK (with inline cert)")
 
 
 def test_enroll_rejects_bad_token_and_bad_node_id():

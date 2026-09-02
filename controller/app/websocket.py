@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Dict, Set, Optional, Any
+from typing import Dict, Set, Any, Optional
 from datetime import datetime, timezone
-from fastapi import WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi import WebSocket, WebSocketDisconnect, Query
 import structlog
 
-from app.auth import verify_controller_token, auth_config
+from app.auth import auth_config
 from app.models import NodeHeartbeat, AttackResult
 
 logger = structlog.get_logger(__name__)
@@ -23,7 +23,7 @@ class ConnectionManager:
         self._lock = asyncio.Lock()
     
     async def connect(self, websocket: WebSocket, client_id: str, channels: list[str]):
-        await websocket.accept()
+        # v1.5.0: 假设 endpoint 已 accept; 此处不再重复 (避免 RuntimeError)
         async with self._lock:
             self._client_info[websocket] = {
                 "client_id": client_id,
@@ -111,19 +111,37 @@ class Channels:
 
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: Optional[str] = Query(None),
     channels: str = Query("nodes,attacks,metrics,alerts,system"),
     client_id: str = Query("web-ui")
 ):
-    """WebSocket 端点 - 需要 Token 认证"""
-    # 验证 Token
-    if not auth_config.verify_token(token):
-        await websocket.close(code=4001, reason="Invalid token")
-        return
-    
+    """WebSocket 端点 - 需要 Token 认证 (v1.5.0: 支持 URL token 兼容 + 首消息 token)
+
+    v1.5.0 (S-NEW-3 / TD-7 修复): 优先从 query string 读 token (兼容旧客户端),
+    如未提供则要求首条消息携带 {"type": "auth", "token": "..."}。
+
+    URL token 仍可工作 (向后兼容), 但**生产 WebUI 已切换到首消息方案**,
+    避免 token 写入 URL → Referer/网关日志泄露。
+    """
+    # 1. 接受连接 (FastAPI WebSocket route 不自动 accept, 必须手动调用)
+    await websocket.accept()
+
+    # 2. 验证 token: 优先 query, 缺则等首消息
+    if not (token and auth_config.verify_token(token)):
+        try:
+            data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            msg = json.loads(data)
+            if msg.get("type") != "auth" or not auth_config.verify_token(msg.get("token", "")):
+                await websocket.close(code=4001, reason="Invalid or missing token")
+                return
+            token = msg.get("token")  # 用于审计
+        except (asyncio.TimeoutError, json.JSONDecodeError, KeyError):
+            await websocket.close(code=4001, reason="Auth required (first message)")
+            return
+
     ch_list = [c.strip() for c in channels.split(",") if c.strip()]
     await manager.connect(websocket, client_id, ch_list)
-    
+
     try:
         while True:
             # 心跳保持 + 接收订阅变更

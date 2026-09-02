@@ -23,9 +23,10 @@ services:
       - TLS_CERT_FILE=/certs/controller-cert.pem
       - TLS_KEY_FILE=/certs/controller-key.pem
       - TLS_CA_FILE=/certs/ca-cert.pem
-      # v1.3.0 起目标白名单不再技术强制 (仅作为节点环境变量兼容保留);
-      # 目标约束转为流程管控: 授权书 + SAFETY_RULES 红线
+      # v1.5.0 起目标白名单默认开启 (fail-closed), 仅授权内网 CIDR 可发射
+      # 需对白名单外目标演练必须显式 ALLOW_ANY_TARGET=true 并在授权书明确
       - ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12
+      - ALLOW_ANY_TARGET=false
       - GLOBAL_MAX_RPS=50000
       - GLOBAL_MAX_PPS=100000
       - GLOBAL_MAX_CONCURRENT_CONNECTIONS=100000
@@ -64,17 +65,24 @@ services:
       - NODE_TYPE=http
       - NODE_LABELS=role=http-attacker,zone=local
       - CONTROLLER_URL=https://controller:8443
+      # v1.5.0: 强制 mTLS — node 客户端证书由 controller /api/v1/nodes/enroll 签发
+      # 流程: WebUI「添加节点」→ 复制 enroll 命令到攻击机 → enroll 返回 PEM → 写入 /certs/
+      # 测试用占位证书见 deploy/generate_certs.sh (生产禁止使用静态证书)
       - CONTROLLER_CA_CERT=/certs/ca-cert.pem
       - NODE_CERT=/certs/node-cert.pem
       - NODE_KEY=/certs/node-key.pem
       - NODE_TOKEN=
       - SHARED_SECRET=${SHARED_SECRET:?SHARED_SECRET must be set in .env (>=32 chars, e.g. openssl rand -hex 32)}
       - REQUIRE_SHARED_SECRET=true
+      # v1.5.0: 显式 opt-out 默认 false (强制 mTLS); 测试环境可设为 true
+      - NODE_INSECURE_PLAIN_HTTP=false
+      - NODE_PLAIN_HTTP_BANNED=true
       - ATTACK_TYPES=http_flood,slowloris
       - MAX_RPS=10000
       - MAX_CONCURRENT=5000
       - HEARTBEAT_INTERVAL=10
       - ALLOWED_TARGET_CIDRS=10.100.0.0/16,192.168.0.0/16,172.16.0.0/12
+      - ALLOW_ANY_TARGET=false
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
     volumes:

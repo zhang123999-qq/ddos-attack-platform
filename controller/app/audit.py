@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import os
-import json
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Any, Dict
+from typing import Optional, Any
 from logging.handlers import RotatingFileHandler
 import logging
 import structlog
@@ -46,7 +45,8 @@ class AuditLogger:
                 try:
                     cand.parent.mkdir(parents=True, exist_ok=True)
                     probe = cand.parent / ".write_test"
-                    probe.touch(); probe.unlink()
+                    probe.touch()
+                    probe.unlink()
                     self.log_path = cand
                     break
                 except (PermissionError, OSError):
@@ -225,6 +225,12 @@ class AuditLogger:
             self._buffer_only(event)
         except asyncio.QueueFull:
             # 队列满: 丢弃最旧事件保持实时流 (不阻塞、不落盘)
+            # v1.5.0 (M-3): 暴露溢出指标, 便于监控审计风暴
+            try:
+                from app.metrics import AUDIT_QUEUE_OVERFLOW_TOTAL
+                AUDIT_QUEUE_OVERFLOW_TOTAL.inc()
+            except Exception:
+                pass
             try:
                 self._queue.get_nowait()
                 self._queue.put_nowait(event)

@@ -37,5 +37,14 @@ SyslogIdentifier=ddos-attacker
 LimitNOFILE=65536
 LimitNPROC=4096
 
+# v1.5.0 (R-NEW-3): OOM 防护 — 攻击节点在错误风暴时易触发 OOM
+# attacker 节点 MemoryMax 默认 2G (节点常驻连接 + 大并发需要更多内存)
+# OOMPolicy=stop: 优雅停止, Restart=always 自动拉起 (避免 OOM 后半残状态)
+# OOMScoreAdjust=-300: 优先级高于 controller (节点可被 OOM 但 controller 必须存活)
+MemoryMax=2G
+MemoryHigh=1536M
+OOMPolicy=stop
+OOMScoreAdjust=-300
+
 [Install]
 WantedBy=multi-user.target

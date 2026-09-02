@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import socket
 import ssl
 import random
 import time
@@ -9,7 +8,7 @@ from typing import List, Optional
 import structlog
 
 from app.attacks.base import SafeAttackBase, AttackRegistry
-from app.models import AttackCommand, AttackParams, AttackType, AttackStatus
+from app.models import AttackCommand, AttackType
 
 logger = structlog.get_logger(__name__)
 

@@ -4,11 +4,11 @@ import asyncio
 import os
 import time
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional, List
 from datetime import datetime, timezone
 import structlog
 
-from app.models import AttackCommand, AttackParams, AttackResult, AttackStatus, AttackType
+from app.models import AttackCommand, AttackResult, AttackStatus, AttackType
 from app.crypto import node_crypto
 
 logger = structlog.get_logger(__name__)
@@ -70,12 +70,15 @@ class SafeAttackBase(ABC):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        # v1.3.0 方案A: 白名单不再生效, 仅记录环境变量值供诊断
+        # v1.5.0 安全加固: 节点侧白名单重新生效 (defense-in-depth, 防止 controller 误配)
         cls.ALLOWED_TARGET_CIDRS = [
             c.strip() for c in os.getenv("ALLOWED_TARGET_CIDRS", "").split(",") if c.strip()
         ]
+        # 节点默认亦支持 opt-out (教学场景一致性)
+        cls.ALLOW_ANY_TARGET = os.getenv("ALLOW_ANY_TARGET", "false").lower() == "true"
         logger.info("attack_class_loaded", name=cls.NAME,
-                    target_restrictions="disabled")
+                    target_restrictions=("disabled" if cls.ALLOW_ANY_TARGET
+                                          else f"enabled ({len(cls.ALLOWED_TARGET_CIDRS)} cidrs)"))
     
     def __init__(self, command: AttackCommand):
         self.command = command
@@ -111,8 +114,11 @@ class SafeAttackBase(ABC):
     def pre_flight_check(cls, target: str) -> None:
         """启动前安全检查 - 失败抛出 SafetyError
 
-        v1.3.0 方案A: 目标域名/IP 不做限制 — 白名单校验移除。
-        仍保留: 全局熔断开关、root/CAP_NET_RAW 权限检查、scapy 可用性检查。
+        v1.5.0: 节点侧白名单重新生效 (defense-in-depth, 即使 controller 误配也能拦截)
+        - 默认拒绝未在 ALLOWED_TARGET_CIDRS 内的 IP/CIDR/域名
+        - 域名解析为 IP 后任一 A 记录命中白名单即放行
+        - ALLOW_ANY_TARGET=true 显式 opt-out
+        - 留空 ALLOWED_TARGET_CIDRS + 未 opt-out → 拒绝所有目标
         """
         # 1. 全局熔断
         if cls.EMERGENCY_STOP.is_set():
@@ -125,7 +131,79 @@ class SafeAttackBase(ABC):
             if euid is not None and euid != 0:
                 raise SafetyError(f"{cls.NAME} requires root/CAP_NET_RAW")
 
+        # 3. 目标白名单校验 (v1.5.0 加固)
+        if not cls.ALLOW_ANY_TARGET:
+            if not cls.ALLOWED_TARGET_CIDRS:
+                raise SafetyError(
+                    f"{cls.NAME}: target whitelist not configured "
+                    f"(set ALLOWED_TARGET_CIDRS=... or ALLOW_ANY_TARGET=true)"
+                )
+            if not cls._is_target_in_whitelist(target):
+                raise SafetyError(
+                    f"{cls.NAME}: target {target} not in allowed CIDRs "
+                    f"(node-side defense-in-depth check)"
+                )
+
         logger.info("pre_flight_check_passed", attack=cls.NAME, target=target)
+
+    @classmethod
+    def _is_target_in_whitelist(cls, target: str) -> bool:
+        """节点侧白名单匹配 (IP/CIDR/域名)
+
+        返回 True 即放行, False 拒绝。
+        域名解析使用 getaddrinfo (同步, 在 pre_flight 阶段足够)。
+        """
+        import ipaddress
+        import socket as _socket
+
+        # 1) 解析为 IP
+        try:
+            ip = ipaddress.ip_address(target)
+            resolved_ips = [str(ip)]
+        except ValueError:
+            pass
+        else:
+            return cls._any_ip_in_cidrs(resolved_ips)
+
+        # 2) 解析为 CIDR
+        try:
+            net = ipaddress.ip_network(target, strict=False)
+            # 目标本身是 CIDR (如 10.100.0.0/16), 检查是否与任一白名单 CIDR 有重叠
+            for cidr in cls.ALLOWED_TARGET_CIDRS:
+                try:
+                    allowed = ipaddress.ip_network(cidr, strict=False)
+                    if net.overlaps(allowed):
+                        return True
+                except ValueError:
+                    continue
+            return False
+        except ValueError:
+            pass
+
+        # 3) 域名: getaddrinfo 解析
+        try:
+            infos = _socket.getaddrinfo(target, None, family=_socket.AF_UNSPEC, type=_socket.SOCK_STREAM)
+            resolved_ips = list({i[4][0] for i in infos})
+            return cls._any_ip_in_cidrs(resolved_ips)
+        except (_socket.gaierror, OSError):
+            return False
+
+    @classmethod
+    def _any_ip_in_cidrs(cls, ips) -> bool:
+        import ipaddress
+        for ip_str in ips:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+            for cidr in cls.ALLOWED_TARGET_CIDRS:
+                try:
+                    net = ipaddress.ip_network(cidr, strict=False)
+                    if ip in net:
+                        return True
+                except ValueError:
+                    continue
+        return False
     
     # ========== 生命周期 ==========
     
@@ -188,7 +266,6 @@ class SafeAttackBase(ABC):
 
     async def _progress_reporter(self):
         """C3: 每 2s 上报当前计数快照 (status=running), 让控制器/UI 实时可见"""
-        from app.models import AttackResult as _AR  # 局部引用避免循环导入风险
         while not self._stop_event.is_set() and not self.EMERGENCY_STOP.is_set():
             await asyncio.sleep(2)
             if self._stop_event.is_set() or self.EMERGENCY_STOP.is_set():

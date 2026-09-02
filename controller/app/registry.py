@@ -8,10 +8,10 @@ from typing import Dict, List, Optional, Any
 
 import structlog
 
-from app.ratelimit import QuotaExhaustedError
+from app.ratelimit import QuotaExhaustedError, RateLimiter, TargetValidator
 from app.models import (
-    AttackType, AttackCommand, AttackParams, AttackResult, AttackStatus,
-    NodeInfo, NodeStatus, NodeHeartbeat, EmergencyStopCommand, TargetSpec
+    AttackType, AttackCommand, AttackResult, AttackStatus,
+    NodeInfo, NodeStatus, NodeHeartbeat, EmergencyStopCommand
 )
 from app.audit import audit_logger
 from app.node_commander import node_commander
@@ -45,6 +45,9 @@ class NodeRegistry:
             node.last_heartbeat = datetime.now(timezone.utc)
             self._nodes[node.node_id] = node
         await audit_logger.log_node_register(node)
+        # v1.5.0: 持久化节点 (R-NEW-1)
+        from app.state_store import state_store
+        await state_store.save_node(node.model_dump(mode='json'))
         logger.info("node_registered", node_id=node.node_id, type=node.node_type)
         return node
 
@@ -191,11 +194,24 @@ class AttackExecutor:
 
     async def execute_attack(self, command: AttackCommand) -> Dict[str, Any]:
         """执行攻击指令"""
-        # 1. 目标验证 — v1.3.0 方案A: 域名/IP 不做限制; 仅拒绝未覆盖的场景占位符
-        if not self.target_validator.is_allowed(command.params.target):
-            raise ValueError(
+        # 1. 目标验证 — v1.5.0: 白名单默认开启, 占位符一律拒绝
+        if not await self.target_validator.is_allowed(command.params.target):
+            # 区分两类拒绝原因, 便于审计与错误信息
+            is_placeholder = command.params.target.is_placeholder()
+            reason = (
                 f"Placeholder target {command.params.target.ip} must be overridden before launch"
+                if is_placeholder
+                else f"Target {command.params.target.ip} not in allowed CIDRs "
+                     f"(set ALLOW_ANY_TARGET=true to bypass, authorized environments only)"
             )
+            # 审计: 记录被拦截的越权目标 (S-NEW 加权)
+            from app.audit import audit_logger
+            await audit_logger.log_target_validation_failure(
+                actor="controller",
+                target=command.params.target.ip,
+                reason=reason,
+            )
+            raise ValueError(reason)
 
         # 2. 选择目标节点
         if command.node_ids:
@@ -242,6 +258,18 @@ class AttackExecutor:
                 "finished_at": None,
                 "stop_reason": None,
             }
+
+        # v1.5.0: 持久化活跃攻击 (R-NEW-1)
+        from app.state_store import state_store
+        await state_store.save_attack({
+            "attack_id": attack_id,
+            "status": "running",
+            "attack_type": command.attack_type.value,
+            "target_ip": command.params.target.ip,
+            "target_port": command.params.target.port,
+            "started_at": now.isoformat(),
+            "node_ids": [n.node_id for n in target_nodes],
+        })
 
         await audit_logger.log_attack_start("controller", command, [n.node_id for n in target_nodes])
 
@@ -317,12 +345,22 @@ class AttackExecutor:
             self._active_attacks.pop(attack_id, None)
             self._attack_node_map.pop(attack_id, None)
 
+        # v1.5.0: 清除持久化的攻击 (R-NEW-1)
+        from app.state_store import state_store
+        state_store.purge_attack(attack_id)
+
         await audit_logger.log_attack_stop("controller", attack_id, ",".join(target_node_ids), reason)
         return {"stopped": True, "nodes": target_node_ids}
 
     async def emergency_stop(self, command: EmergencyStopCommand):
         """紧急熔断"""
         self._emergency_stop.set()
+
+        # v1.5.0: 持久化熔断状态 (R-NEW-1) - 重启后自动恢复
+        from app.state_store import state_store
+        await state_store.save_emergency(
+            active=True, reason=command.reason, issued_by=command.issued_by
+        )
 
         async with self._lock:
             active_ids = list(self._active_attacks.keys())
@@ -347,6 +385,8 @@ class AttackExecutor:
                     meta.update({"status": "emergency_stopped",
                                  "finished_at": self._now_iso(),
                                  "stop_reason": f"emergency: {command.reason}"})
+                # 熔断也清除持久化
+                state_store.purge_attack(aid)
 
         await audit_logger.log_emergency_stop(command.issued_by, command.reason, all_target_nodes)
         logger.critical("emergency_stop_executed",

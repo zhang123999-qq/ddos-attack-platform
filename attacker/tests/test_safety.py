@@ -11,8 +11,7 @@ os.environ.setdefault("LOG_LEVEL", "error")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.models import AttackCommand, AttackParams, AttackType, TargetSpec  # noqa: E402
-from app.attacks import AttackRegistry, SafeAttackBase, http_flood, slowloris  # noqa: E402
-from app.attacks import syn_flood, udp_flood  # noqa: E402
+from app.attacks import AttackRegistry, SafeAttackBase, http_flood  # noqa: E402
 
 
 def _cmd(attack_type: AttackType, ip="127.0.0.1", rps=100) -> AttackCommand:
@@ -44,7 +43,7 @@ def test_registry_rejects_unknown_type():
 
     class FakeType:
         value = "not_a_real_attack"
-    cmd = _cmd.__wrapped__ if hasattr(_cmd, "__wrapped__") else None
+    _has_wrapped = hasattr(_cmd, "__wrapped__")  # noqa: F841 (intentional probe)
     # 直接构造未注册枚举路径: 清空一个已知项验证拒绝逻辑
     saved = AttackRegistry._registry.pop(AttackType.SYN_FLOOD, None)
     try:
@@ -59,33 +58,50 @@ def test_registry_rejects_unknown_type():
     print("REGISTRY UNKNOWN-TYPE REJECTION OK")
 
 
-def test_no_target_restrictions():
-    """v1.3.0 方案A: 目标不限 — 任意 IP/域名均放行, 白名单校验已移除"""
-    os.environ["ALLOWED_TARGET_CIDRS"] = ""
+def test_target_whitelist_blocks_outside_cidr():
+    """v1.5.0: 节点侧白名单重新生效 — 白名单外目标必须被 pre_flight 拒绝"""
+    os.environ["ALLOWED_TARGET_CIDRS"] = "10.100.0.0/16"
+    os.environ["ALLOW_ANY_TARGET"] = "false"
+    # 重新触发 __init_subclass__ 让环境变量生效
+    import importlib
+    from app.attacks import base
+    importlib.reload(base)
+    from app.attacks import http_flood
+    importlib.reload(http_flood)
 
-    async def run():
-        inst = AttackRegistry.create(_cmd(AttackType.HTTP_FLOOD, ip="8.8.8.8"))
-        try:
-            # execute 会真正发起请求 (8.8.8.8:80 可能超时/失败) — 只要不因白名单拦截即通过
-            await asyncio.wait_for(inst.execute(), timeout=10)
-            return "executed"
-        except Exception as e:
-            msg = str(e).lower()
-            if "allowed cidrs" in msg or "whitelist" in msg or "not in allowed" in msg:
-                return "blocked-by-whitelist"
-            return "executed-with-error"  # 网络/超时类错误 = 校验未拦截
+    inst = http_flood.HTTPFloodAttack(_cmd(AttackType.HTTP_FLOOD, ip="8.8.8.8"))
+    from app.attacks.base import SafetyError
+    raised = False
+    try:
+        inst.pre_flight_check("8.8.8.8")
+    except SafetyError as e:
+        raised = "not in allowed" in str(e).lower() or "whitelist" in str(e).lower()
+    assert raised, f"outside-CIDR target must be blocked by whitelist, got no SafetyError"
+    print("TARGET WHITELIST BLOCKS OUTSIDE CIDR OK")
 
-    outcome = asyncio.run(run())
-    assert outcome != "blocked-by-whitelist", "target restrictions must be removed"
-    print(f"NO TARGET RESTRICTIONS OK (outcome={outcome})")
+    # 白名单内目标放行 (不抛 SafetyError)
+    inst_ok = http_flood.HTTPFloodAttack(_cmd(AttackType.HTTP_FLOOD, ip="10.100.5.5"))
+    inst_ok.pre_flight_check("10.100.5.5")
+    print("TARGET WHITELIST ALLOWS INSIDE CIDR OK")
+
+    # ALLOW_ANY_TARGET=true 显式 opt-out
+    os.environ["ALLOW_ANY_TARGET"] = "true"
+    importlib.reload(base)
+    importlib.reload(http_flood)
+    inst_any = http_flood.HTTPFloodAttack(_cmd(AttackType.HTTP_FLOOD, ip="8.8.8.8"))
+    inst_any.pre_flight_check("8.8.8.8")  # 不应抛
+    os.environ["ALLOW_ANY_TARGET"] = "false"  # 还原
+    print("ALLOW_ANY_TARGET OPT-OUT OK")
 
 
 def test_whitelist_classmethod_removed():
-    """v1.3.0 方案A: validate_target 类方法已删除, 环境变量不再生效"""
+    """v1.5.0: validate_target 类方法已删除, 由 _is_target_in_whitelist 替代"""
     cls = http_flood.HTTPFloodAttack
     assert not hasattr(cls, "validate_target"), "validate_target must be removed"
-    assert cls.ALLOWED_TARGET_CIDRS == [] or isinstance(cls.ALLOWED_TARGET_CIDRS, list)
-    print("WHITELIST CLASSMETHOD REMOVED OK")
+    assert hasattr(cls, "_is_target_in_whitelist"), "_is_target_in_whitelist must exist"
+    assert isinstance(cls.ALLOWED_TARGET_CIDRS, list)
+    assert isinstance(cls.ALLOW_ANY_TARGET, bool)
+    print("WHITELIST CLASSMETHOD STATE OK")
 
 
 def test_emergency_stop_blocks_execution():
@@ -146,11 +162,10 @@ def test_duration_zero_or_negative_rejected_by_model():
 
 
 if __name__ == "__main__":
-    # v1.4.0 (TD-3 修复): v1.3.0 移除了白名单校验, test_whitelist_* 系列函数已删除
-    # 替换为 v1.3.0 引入的对应测试
+    # v1.5.0: 目标白名单默认开启 — 替换原 v1.3.0 的 test_no_target_restrictions
     test_registry_completeness()
     test_registry_rejects_unknown_type()
-    test_no_target_restrictions()
+    test_target_whitelist_blocks_outside_cidr()
     test_whitelist_classmethod_removed()
     test_emergency_stop_blocks_execution()
     test_token_bucket_enforces_rate_ceiling()

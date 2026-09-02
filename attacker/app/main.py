@@ -5,27 +5,23 @@ import sys
 import asyncio
 import hmac
 import threading
-import uuid
 import signal
-import socket
 import platform
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, Callable, Awaitable
-from pathlib import Path
+from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
-from fastapi.responses import JSONResponse
 import httpx
 
 # 平台版本单一事实源 — 发布时只改这一处
-PLATFORM_VERSION = "1.4.1"
-# v1.4.1: REG-1 fix (upgrade path compat)
+PLATFORM_VERSION = "1.5.0"
+# v1.5.0: A.1 白名单默认开启 + A.2 强制 mTLS (fail-closed 缺证书拒启动)
 import structlog
 
 from app.models import (
-    NodeInfo, NodeHeartbeat, NodeStatus, AttackCommand, AttackResult,
-    AttackType, AttackStatus, EmergencyStopCommand
+    NodeInfo, AttackCommand, AttackResult,
+    AttackStatus, EmergencyStopCommand
 )
 from app.crypto import node_crypto
 from app.health import HealthMonitor

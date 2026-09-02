@@ -68,7 +68,15 @@ class NodeCommander:
         return ctx
 
     async def start(self):
-        """创建可复用的 HTTP 客户端 (TD-1 修复)"""
+        """创建可复用的 HTTP 客户端 (TD-1 修复)
+
+        v1.5.0 幂等: 已启动则直接返回, 避免覆盖现有客户端 + 连接池泄漏
+        """
+        # NEW-5 修复: idempotency guard — 多次调用 start() 安全
+        if self._client is not None and not self._client.is_closed:
+            logger.debug("node_commander_already_started", scheme=self._scheme)
+            return
+
         insecure = os.getenv("NODE_INSECURE_PLAIN_HTTP", "false").lower() == "true"
         banned = os.getenv("NODE_PLAIN_HTTP_BANNED", "false").lower() == "true"
 

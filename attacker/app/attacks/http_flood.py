@@ -10,7 +10,7 @@ from typing import Optional
 import structlog
 
 from app.attacks.base import SafeAttackBase, AttackRegistry
-from app.models import AttackCommand, AttackParams, AttackType, AttackStatus
+from app.models import AttackCommand, AttackType
 
 logger = structlog.get_logger(__name__)
 
