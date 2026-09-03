@@ -792,9 +792,9 @@ wscat -c "$CONTROLLER_URL/ws/metrics?token=$TOKEN&channels=nodes,attacks,metrics
 | v1.3.4 | 2026-08-25 | **安装器加固**: `controller-install.sh` 与 `node-install.sh` 现在创建专用 `ddos` 系统用户 (无登录权限) 并将安装目录、配置文件、systemd 单元 chown 到该用户；`config.env` 固定 `chmod 600`（含 SHARED_SECRET），systemd unit `chmod 640`；Controller unit 添加 `User=ddos Group=ddos`（v1.3.3 之前因 `ddos` 用户不存在会回退 root 运行）；attacker `http` 类型用 `ddos` 用户；`raw` 类型仍为 root（需要 CAP_NET_RAW）；升级路径同步修正 owner 与权限，避免 GHA tarball 中 build UID (1001) 残留；**文档补充**: `/metrics` 端点归属澄清（仅 attacker 节点，Controller 走 WS）；`/api/v1/nodes/heartbeat` 完整 schema 与 Header 鉴权约定 |
 | v1.3.3 | 2026-08-25 | **BUG-2**: 节点心跳移入独立 OS 线程（攻击错误风暴不再延迟心跳）+ HTTP flood 连续错误指数退避（封顶 250ms）；**BUG-4**: 心跳记账改用服务器时钟，未知节点心跳记 warning 不再静默；节点侧每 60s 幂等重发 register + 收到 401/403/404 立即重注册（控制器重启后节点自愈回联 ≤60s）；**BUG-1**: `ddos-controller`/`ddos-node` wrapper 变更类操作提权门卫（root 直行 → sudo -n → 明确提示）；**BUG-5**: 二进制安装器随附 node-install.sh 到安装目录（/install.sh 端点可用），INSTALL_SCRIPT 候选新增二进制同目录；**BUG-6**: GET /nodes/{id} 读全量字典，离线节点详情可查（仅未注册过返回 404）；**OBS-7**: structlog 过滤级别接通 LOG_LEVEL env；**OBS-8**: launch/stop 保留字 GET 返回 405 + 文档 400/422 边界澄清；audit writer 跨事件循环复用自旋修复（Queue 每次 start 重建）；PLATFORM_VERSION 单一事实源 |
 | v1.3.2 | 2026-08-25 | 目标支持域名/IP（TargetSpec RFC1123 校验，scapy 类攻击 getaddrinfo 自动解析）；**目标白名单技术强制移除**（仅保留场景占位符拒绝）；攻击列表/详情新增权威 `status/started_at/finished_at/stop_reason`，返回运行中+60min TTL 内已结束攻击；节点每 2s 周期上报进度快照（单调合并）；`metrics.error_counts` 错误聚合摘要（样本上限 50）；WebSocket attack_start 携带完整 command |
-| v1.2 | 2024-12-20 | 新增一键安装引导端点组：enroll-command / nodes/enroll / controller-info / install.sh / artifacts 分发；无状态 enroll token 机制说明 |
-| v1.1 | 2024-12-19 | 新增 Node API 文档、完善错误码、补充 Python/cURL 示例、修复 datetime 序列化说明；rate-limits 响应改为 quotas 数组（按 attack_id+node_id 记账）；场景运行 overrides 必填（400 校验）；新增 emergency_stop/reset 端点；节点注册/心跳/注销/结果上报身份一致性校验 (403)；TLS_VERIFY_CLIENT 开关说明 |
-| v1.0 | 2024-01-15 | 初始版本：REST API、WebSocket、场景管理、限流查询 |
+| v1.2 | 2026-08-22 | 新增一键安装引导端点组：enroll-command / nodes/enroll / controller-info / install.sh / artifacts 分发；无状态 enroll token 机制说明 |
+| v1.1 | 2026-08-22 | 新增 Node API 文档、完善错误码、补充 Python/cURL 示例、修复 datetime 序列化说明；rate-limits 响应改为 quotas 数组（按 attack_id+node_id 记账）；场景运行 overrides 必填（400 校验）；新增 emergency_stop/reset 端点；节点注册/心跳/注销/结果上报身份一致性校验 (403)；TLS_VERIFY_CLIENT 开关说明 |
+| v1.0 | 2026-08-22 | 初始版本：REST API、WebSocket、场景管理、限流查询 |
 
 ---
 

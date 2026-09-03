@@ -1,7 +1,8 @@
 # MAINTAINERS
 
 > **文档版本**: v1.0
-> **生效日期**: 2026-08-31
+> **首次生效**: 2026-08-31
+> **最近更新**: 2026-09-02
 > **owner**: 项目创始人 + Maintainer 团队
 
 本文件定义**谁有权合并 PR、谁对哪些模块负责、谁对安全把关**。参考 [`CODE_REVIEW_STANDARDS.md`](CODE_REVIEW_STANDARDS.md) §6 高敏模块必审清单使用。
