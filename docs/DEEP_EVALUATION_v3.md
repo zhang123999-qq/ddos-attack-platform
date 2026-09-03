@@ -2,7 +2,7 @@
 
 > **项目**: `zhang123999-qq/ddos-attack-platform`  
 > **当前版本**: v1.4.1-hotfix6 (master @ 7c694b9)  
-> **评估日期**: 2025-08-28  
+> **评估日期**: 2026-08-28  
 > **评估者**: DSH (DeepSeek Harness)  
 > **历史评估**: v1.3.4 (DEEP_EVALUATION.md) → v1.4.0 (DEEP_EVALUATION_v2.md) → v1.4.1-hotfix6 (本报告) → v1.5.0 (见 [CHANGELOG.md](CHANGELOG.md))
 > **背景**: 完整卸载重装测试后第三轮评估, 6 项 REG-1~6 全部修复完成, 7 项 TD 仍 open, 7 项新发现 (NEW-1~7)
@@ -577,5 +577,5 @@ UPD: .github/workflows/docker-publish.yml (NEW-1/2/3 修复, 本轮建议)
 
 **报告结束**  
 **版本**: v3 (v1.4.1-hotfix6 配套)  
-**日期**: 2025-08-28  
+**日期**: 2026-08-28  
 **下次评审**: v1.4.1.1 (合并 hotfix tag) 后

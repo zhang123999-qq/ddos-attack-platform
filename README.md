@@ -498,7 +498,7 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 | 文档 | 说明 | 优先级 |
 |------|------|--------|
 | [SAFETY_RULES.md](docs/SAFETY_RULES.md) | 安全守则、法律免责、签署页 | 🔴 **必读** |
-| [CHANGELOG.md](docs/CHANGELOG.md) | 版本变更日志 (v1.0 → v1.4.1-hotfix6) | 🟡 重要 |
+| [CHANGELOG.md](docs/CHANGELOG.md) | 版本变更日志 (v1.0 → v1.5.0) | 🟡 重要 |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构、通信协议、数据模型、扩展指南 | 🟡 重要 |
 | [API_REFERENCE.md](docs/API_REFERENCE.md) | 完整 REST API / WebSocket 参考 | 🟡 重要 |
 | [SECURITY.md](docs/SECURITY.md) | 漏洞披露流程、安全策略 | 🟡 重要 |
@@ -518,5 +518,5 @@ curl -k -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 - ❌ 禁止用于非授权测试  
 - ✅ 允许授权团队内部教学、演练、红蓝对抗
 
-> **版权所有 © 2024 内部安全团队**  
+> **版权所有 © 2026 内部安全团队**  
 > 未经书面授权，不得复制、修改、分发、公开展示或创作衍生作品。

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.5.0] - 2026-09-01
+## [v1.5.0] - 2026-09-02
 
 > 重大安全加固 + 架构改进: 目标白名单默认开启 + Node mTLS 完整链路 + 状态持久化 + Admin 限流 + main.py 拆分。
 > 11 项技术债关闭 (R-NEW-1, O-NEW-1, S-NEW-3, M-3, NEW-5, R-NEW-2, R-NEW-3 等)。
@@ -144,7 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.4.1-hotfix6] - 2025-08-28
+## [v1.4.1-hotfix6] - 2026-08-28
 
 ### 🔒 修复 (Security)
 
@@ -192,7 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.4.1] - 2025-08-28
+## [v1.4.1] - 2026-08-28
 
 ### 🔒 修复 (Security)
 
@@ -205,7 +205,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.4.0] - 2025-08-28
+## [v1.4.0] - 2026-08-28
 
 ### 🔒 修复 (Security)
 
@@ -235,7 +235,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.3.4] - 2025-08-25
+## [v1.3.4] - 2026-08-25
 
 ### 🔧 改进 (Improvements)
 
@@ -254,7 +254,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.3.3] - 2025-08-25
+## [v1.3.3] - 2026-08-25
 
 ### 🔒 修复 (Security)
 
@@ -274,7 +274,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.3.2] - 2025-08-25
+## [v1.3.2] - 2026-08-25
 
 ### 🔒 修复 (Security)
 
@@ -283,7 +283,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.3.0] - 2025-08-25
+## [v1.3.0] - 2026-08-25
 
 ### 🎉 主要变更 (Major Changes)
 

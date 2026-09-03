@@ -6,8 +6,8 @@
 
 > **文档版本**: v1.5.0 (跟随平台版本)  
 > **适用平台**: DDoS Attack Platform v1.5.0+  
-> **编写日期**: 2024-01-15  
-> **最近更新**: 2026-09-01  
+> **首次编写**: 2026-08-22  
+> **最近更新**: 2026-09-02  
 > **评审者**: 架构组、安全组、运维组  
 > **文档密级**: 内部机密
 
@@ -523,11 +523,11 @@ certs/
 
 | 版本 | 日期 | 变更摘要 | 影响范围 |
 |------|------|---------|---------|
-| **v1.4.1-hotfix6** | 2025-08-28 | REG-1~6 全闭环: do_update 写 NODE_TLS_* / 升级路径兼容 / 6 项 install 脚本 bug; fail-closed 默认 (TD-1); 5 套 E2E 验证脚本; 文档体系完整化 (CHANGELOG/SECURITY/CONTRIBUTING) | 全栈 + 部署 |
-| v1.4.0 | 2025-08-28 | TD-1/2/3: NodeCommander TLS 默认开启 (mTLS) / docker-compose 拒绝弱密钥 / 测试死引用修复 | 通信 + 配置 |
-| v1.3.4 | 2025-08-25 | F2/F3/F4: ddos 系统用户 / config.env 600 / service unit 640; install 脚本 --cacert 分源 | 安装器 |
-| v1.3.3 | 2025-08-25 | BUG-1~6 + OBS-7/8: heartbeat race / 时钟漂移 / 离线节点可见 / 保留字路由 | 全栈 |
-| v1.3.2 | 2025-08-25 | 方案 A/B/C：目标域名/IP 无限制（白名单技术强制移除，占位符守卫保留，scapy getaddrinfo 解析）；攻击日志默认不落盘（内存环形缓冲 500 条 + AUDIT_FILE_ENABLED 开关）；结果表 60min TTL 清理 + 僵尸兜底；权威状态机 + 节点 2s 周期快照上报 + WebUI mergeResult 秒级重绘 + 行内错误聚合摘要 + 停止/清除操作列；安装器移除白名单询问 | 全栈 |
+| **v1.4.1-hotfix6** | 2026-08-28 | REG-1~6 全闭环: do_update 写 NODE_TLS_* / 升级路径兼容 / 6 项 install 脚本 bug; fail-closed 默认 (TD-1); 5 套 E2E 验证脚本; 文档体系完整化 (CHANGELOG/SECURITY/CONTRIBUTING) | 全栈 + 部署 |
+| v1.4.0 | 2026-08-28 | TD-1/2/3: NodeCommander TLS 默认开启 (mTLS) / docker-compose 拒绝弱密钥 / 测试死引用修复 | 通信 + 配置 |
+| v1.3.4 | 2026-08-25 | F2/F3/F4: ddos 系统用户 / config.env 600 / service unit 640; install 脚本 --cacert 分源 | 安装器 |
+| v1.3.3 | 2026-08-25 | BUG-1~6 + OBS-7/8: heartbeat race / 时钟漂移 / 离线节点可见 / 保留字路由 | 全栈 |
+| v1.3.2 | 2026-08-25 | 方案 A/B/C：目标域名/IP 无限制（白名单技术强制移除，占位符守卫保留，scapy getaddrinfo 解析）；攻击日志默认不落盘（内存环形缓冲 500 条 + AUDIT_FILE_ENABLED 开关）；结果表 60min TTL 清理 + 僵尸兜底；权威状态机 + 节点 2s 周期快照上报 + WebUI mergeResult 秒级重绘 + 行内错误聚合摘要 + 停止/清除操作列；安装器移除白名单询问 | 全栈 |
 | v1.2 | 2024-12-20 | 一键安装体系（控制器交互式安装器 + 节点拉取式自助接入：无状态 enroll token、CA/制品分发、WebUI 命令生成）、部署脚本安全加固（SSH accept-new、eval 注入封堵、密钥强制校验）、REQUIRE_SHARED_SECRET | 部署链 + 控制器 API |
 | v1.1 | 2024-12-19 | Controller↔Attacker 实时 HTTP 指令下发、二进制部署、审计修复、安全加固、datetime 序列化修复 | 全栈 |
 | v1.0 | 2024-01-15 | 初始版本：基础编排、5 种攻击、mTLS、WebSocket、Docker 部署 | 全栈 |
